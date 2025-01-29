@@ -262,7 +262,7 @@ def generate_chapter_with_state(
       2) 更新/生成角色状态文档
       3) 向量检索获取往期上下文
       4) 大纲 -> 正文
-      5) 写入 chapter_{novel_number}.txt, 更新 lastchapter.txt
+      5) 写入 chapter_{novel_number}.txt, 更新 last_chapter.txt
       6) 更新向量库
 
     :param novel_settings:        最终的作品设定（字符串）
@@ -291,7 +291,7 @@ def generate_chapter_with_state(
     os.makedirs(chapters_dir, exist_ok=True)
 
     chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
-    lastchapter_file = os.path.join(filepath, "lastchapter.txt")
+    lastchapter_file = os.path.join(filepath, "last_chapter.txt")
     character_state_file = os.path.join(filepath, "character_state.txt")
     global_summary_file = os.path.join(filepath, "global_summary.txt")
 
@@ -396,7 +396,7 @@ def generate_chapter_with_state(
     if chapter_content:
         save_string_to_txt(chapter_content, chapter_file)
 
-        # 更新 lastchapter.txt
+        # 更新 last_chapter.txt
         clear_file_content(lastchapter_file)
         save_string_to_txt(chapter_content, lastchapter_file)
 

@@ -240,7 +240,7 @@ class NovelGeneratorGUI:
                 # 读取设定 & 目录
                 novel_settings_file = os.path.join(filepath, "Novel_setting.txt")
                 novel_novel_directory_file = os.path.join(filepath, "Novel_directory.txt")
-                last_chapter_file = os.path.join(filepath, "lastchapter.txt")
+                last_chapter_file = os.path.join(filepath, "last_chapter.txt")
 
                 novel_settings = read_file(novel_settings_file)
                 novel_novel_directory = read_file(novel_novel_directory_file)
@@ -296,7 +296,7 @@ class NovelGeneratorGUI:
                 novel_settings_file = os.path.join(filepath, "Novel_setting.txt")
                 character_state_file = os.path.join(filepath, "character_state.txt")
                 global_summary_file = os.path.join(filepath, "global_summary.txt")
-                last_chapter_file = os.path.join(filepath, "lastchapter.txt")
+                last_chapter_file = os.path.join(filepath, "last_chapter.txt")
 
                 novel_setting = read_file(novel_settings_file)
                 character_state = read_file(character_state_file)
@@ -304,7 +304,7 @@ class NovelGeneratorGUI:
                 last_chapter_text = read_file(last_chapter_file)
 
                 if not last_chapter_text.strip():
-                    self.log("⚠️ lastchapter.txt 为空，暂无可检查的章节文本。")
+                    self.log("⚠️ last_chapter.txt 为空，暂无可检查的章节文本。")
                     return
 
                 self.log("开始一致性审校...")
