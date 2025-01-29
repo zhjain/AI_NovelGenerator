@@ -15,7 +15,7 @@
 在开始之前，请确保你的系统满足以下要求：
 - **Python 3.8+**
 - **pip 已安装**（Python 包管理器）
-- **API 访问权限**（支持OpenAI API方式的任何AI）
+- **API 访问权限**（支持OpenAI API方式的任何AI，中文推荐使用DeepSeek）
 
 ---
 
