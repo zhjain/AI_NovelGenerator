@@ -9,47 +9,141 @@
 ✅ **一致性检查**（防止剧情冲突）  
 ✅ **GUI 友好交互**（可配置 & 直观操作）  
 
-### **1. 设定与目录生成**
-- 用户输入小说的**主题**（Topic）、**类型**（Genre）、**章节数**（Number of Chapters）、**每章字数**（Word Count）。
-- 通过 **OpenAI API** 生成**小说设定**（包括世界观、人物关系、剧情概述等）。
-- 生成 **小说目录**，确保章节结构合理，并存入 `Novel_setting.txt` 和 `Novel_directory.txt`。
+# **部署与使用指南**
 
-### **2. 章节生成（多步流程）**
-每个章节通过**多步生成**，保证前后一致性：
-1. **检索前情**：读取上一章（`lastchapter.txt`），以及已生成的**全局摘要**、**角色状态**等信息。
-2. **向量检索**（Chroma）：从已生成的章节中搜索相关上下文，提供更一致的内容生成。
-3. **章节大纲生成**：确定该章的**主要事件、冲突点、角色发展**等。
-4. **正文生成**：基于小说设定、全局摘要、角色状态和向量检索的内容，**生成完整章节**。
-5. **角色状态更新**：更新角色的物品、关系、心理变化等，存入 `character_state.txt`。
-6. **全局摘要更新**：确保小说发展合理，存入 `global_summary.txt`。
-7. **存储新章节**：
-   - 每章**独立存储**到 `chapters/` 目录下，例如 `chapter_3.txt`。
-   - 最新章节也会更新到 `lastchapter.txt` 以供下一章参考。
-
-### **3. 角色状态与伏笔追踪**
-- 生成**角色设定**（性格、背景、隐藏秘密、目标等）。
-- **动态更新角色状态**（物品、关系、情感变化）。
-- 维护**暗线伏笔**，确保前后剧情连贯。
-
-### **4. 向量检索（Chroma）**
-- 通过 `Chroma` 向量数据库存储章节内容。
-- 生成新章节前，自动**搜索最相关的上下文**，保证情节前后衔接。
-- 避免模型遗忘重要事件或角色发展。
-
-### **5. 一致性检查（审校Agent）**
-- 生成章节后，调用 `check_consistency()`：
-  - 检查**角色行为是否前后矛盾**。
-  - 确保伏笔、暗线的合理性。
-  - 反馈可能的剧情冲突，方便修订。
-
-### **6. GUI 界面**
-- **直观操作**：可输入 API Key、选择模型、修改参数。
-- **实时查看**：
-  - **日志窗口**：显示生成进度与错误信息。
-  - **章节窗口**：显示最新生成的章节内容。
-- **可存储配置**：可加载/保存 `config.json`，下次启动时恢复设定。
+## **1. 环境要求**
+在开始之前，请确保你的系统满足以下要求：
+- **Python 3.8+**
+- **pip 已安装**（Python 包管理器）
+- **API 访问权限**（支持OpenAI API方式的任何AI）
 
 ---
 
-你的改动使系统更加**模块化、可维护**，并且**支持独立章节存储**，这是正向的优化！  
-**唯一的问题是 `persist()` 方法报错**，修复后就可以稳定运行。
+## **2. 安装依赖**
+**手动安装以下依赖**：
+```bash
+pip install openai langchain chromadb langchain_openai langchain_chroma langgraph typing_extensions
+```
+
+---
+
+## **3. 项目结构**
+克隆或下载本项目后，你会看到如下结构：
+```plaintext
+.
+├── main.py                    # 入口文件，运行 GUI
+├── ui.py                      # 图形界面
+├── novel_generator.py         # 章节生成核心逻辑
+├── consistency_checker.py     # 一致性检查 (防止剧情冲突)
+├── prompt_definitions.py      # 预定义的 AI 提示词
+├── utils.py                   # 通用工具函数 (文件操作)
+├── config_manager.py          # 处理配置信息 (API Key, Base URL)
+├── config.json                # 用户配置文件 (可选)
+└── vectorstore/               # (可选) 存储向量数据库
+```
+
+---
+
+## **4. 配置 API Key**
+运行前，你需要**配置 API Key** 以便调用 OpenAI 或本地 LLM。
+
+### **方式 1：手动修改 `config.json`**
+在 `config.json` 文件中填入：
+```json
+{
+    "api_key": "your_openai_api_key",
+    "base_url": "https://api.openai.com/v1",
+    "model_name": "gpt-4o",
+    "topic": "未来科技",
+    "genre": "科幻",
+    "num_chapters": 10,
+    "word_number": 3000,
+    "filepath": "output_directory"
+}
+```
+
+### **方式 2：通过 GUI 直接输入**
+- 启动程序后，在 GUI 中输入 `API Key` 并选择 `Base URL`，然后**点击 "保存配置"** 以存储到 `config.json`。
+
+---
+
+## **5. 运行程序**
+### **方式 1：使用 `Python` 运行**
+```bash
+python main.py
+```
+程序启动后，你会看到一个图形界面，方便用户交互。
+
+### **方式 2：打包成可执行文件**
+如果你希望**打包成可执行文件**（避免 Python 依赖），可以使用 `PyInstaller`：
+```bash
+pip install pyinstaller
+pyinstaller --onefile --windowed main.py
+```
+这样会在 `dist/` 目录下生成 `main.exe`（Windows）或 `main`（Linux/macOS）。
+
+---
+
+## **6. 使用指南**
+### **步骤 1：设置小说参数**
+在 GUI 界面：
+1. **输入 API Key & Base URL**（或使用 `config.json`）。
+2. **选择模型**（如 `gpt-4o`）。
+3. **输入小说主题**（如 "未来世界中的 AI 革命"）。
+4. **选择小说类型**（如 "科幻"、"奇幻"、"悬疑"）。
+5. **设置章节数和每章字数**（如 10 章，每章 3000 字）。
+6. **选择存储路径**（建议创建 `novels/` 目录）。
+
+### **步骤 2：生成小说设定 & 目录**
+点击 **"1. 生成设定 & 目录"**，系统将：
+- 生成**世界观设定**（`Novel_setting.txt`）。
+- 生成**章节目录**（`Novel_directory.txt`）。
+
+### **步骤 3：生成章节**
+点击 **"2. 生成单章"**，系统将：
+- 读取**上一章节内容**（`lastchapter.txt`）。
+- 通过**向量检索**查找相关背景信息。
+- **动态调整角色状态**（`character_state.txt`）。
+- **生成完整章节**，并保存到 `chapters/chapter_X.txt`。
+
+### **步骤 4：一致性检查（可选）**
+点击 **"3. 一致性审校"**，系统将：
+- 检查**角色行为、剧情逻辑**是否前后矛盾。
+- 识别是否有**未解伏笔**，保证故事合理性。
+
+---
+
+## **7. 生成文件管理**
+所有生成的文件存储在你选择的目录下：
+```plaintext
+output_directory/
+├── Novel_setting.txt         # 小说世界观 & 角色设定
+├── Novel_directory.txt       # 章节目录
+├── lastchapter.txt           # 最新章节 (供 AI 参考)
+├── character_state.txt       # 角色状态 (道具、情感、技能)
+├── global_summary.txt        # 小说摘要
+└── chapters/                 # 所有章节
+    ├── chapter_1.txt
+    ├── chapter_2.txt
+    ├── chapter_3.txt
+    └── ...
+```
+
+---
+
+## **8. 可能遇到的问题**
+### **1. `Chroma' object has no attribute 'persist'`**
+**原因：** `Chroma` 版本问题。  
+**解决方案：**
+```bash
+pip uninstall chromadb
+pip install chromadb==0.3.21  # 或尝试其他版本
+```
+如果仍然报错，可以在 `novel_generator.py` 里**注释 `store.persist()`**。
+
+---
+
+### **2. 生成内容不符合预期**
+**可能的原因：**
+- 主题不够清晰，可以在 `topic` 字段中添加详细设定（如 `“废土世界 + AI 叛乱”`）。
+- 角色设定较少，可手动在 `Novel_setting.txt` 里补充。
