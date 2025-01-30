@@ -22,7 +22,7 @@
 ## **2. 安装依赖**
 **手动安装以下依赖**：
 ```bash
-pip install openai langchain chromadb langchain_openai langchain_chroma langgraph typing_extensions
+pip install openai langchain chromadb langchain_openai langchain_chroma langgraph typing_extensions langchain-community
 ```
 
 ---
