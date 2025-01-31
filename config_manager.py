@@ -1,3 +1,5 @@
+# config_manager.py
+# -*- coding: utf-8 -*-
 import json
 import os
 

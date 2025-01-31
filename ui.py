@@ -1,3 +1,5 @@
+# ui.py
+# -*- coding: utf-8 -*-
 import os
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext, messagebox
@@ -7,7 +9,8 @@ from config_manager import load_config, save_config
 from utils import read_file
 from novel_generator import (
     Novel_novel_directory_generate,
-    generate_chapter_with_state
+    generate_chapter_with_state,
+    import_knowledge_file
 )
 from consistency_checker import check_consistency
 
@@ -60,9 +63,9 @@ class NovelGeneratorGUI:
         self.chapter_result = scrolledtext.ScrolledText(chapter_frame, width=80, height=10, foreground="blue")
         self.chapter_result.grid(row=0, column=0, sticky="nsew")
 
-    def build_right_layout(self, ):
+    def build_right_layout(self):
         # 行列配置
-        for i in range(12):
+        for i in range(15):
             self.right_frame.rowconfigure(i, weight=0)
         self.right_frame.columnconfigure(1, weight=1)
 
@@ -81,57 +84,77 @@ class NovelGeneratorGUI:
         self.model_name_var = tk.StringVar(value=self.loaded_config.get("model_name", "gpt-4o-mini"))
         ttk.Entry(self.right_frame, textvariable=self.model_name_var, width=32).grid(row=2, column=1, padx=5, pady=5, sticky="w")
 
-        # 4. 主题(Topic) 多行输入
-        ttk.Label(self.right_frame, text="主题(Topic):").grid(row=3, column=0, padx=5, pady=5, sticky="ne")
+        # 4. Temperature
+        ttk.Label(self.right_frame, text="Temperature:").grid(row=3, column=0, padx=5, pady=5, sticky="e")
+        self.temperature_var = tk.DoubleVar(value=self.loaded_config.get("temperature", 0.7))
+        self.temp_value_label = ttk.Label(self.right_frame, text=f"{self.temperature_var.get():.2f}")
+        self.temp_value_label.grid(row=3, column=2, padx=5, pady=5, sticky="w")
+        
+        temp_scale = ttk.Scale(self.right_frame, from_=0.0, to=1.0, orient=tk.HORIZONTAL, variable=self.temperature_var)
+        temp_scale.grid(row=3, column=1, padx=5, pady=5, sticky="we")
+        def update_temp_label(*args):
+            self.temp_value_label.config(text=f"{self.temperature_var.get():.2f}")
+        self.temperature_var.trace("w", update_temp_label)
+
+        # 5. 主题(Topic) 多行输入
+        ttk.Label(self.right_frame, text="主题(Topic):").grid(row=4, column=0, padx=5, pady=5, sticky="ne")
         self.topic_text = scrolledtext.ScrolledText(self.right_frame, width=32, height=4)
-        self.topic_text.grid(row=3, column=1, padx=5, pady=5, sticky="w")
+        self.topic_text.grid(row=4, column=1, padx=5, pady=5, sticky="w")
         topic_default = self.loaded_config.get("topic", "")
         if topic_default:
             self.topic_text.insert(tk.END, topic_default)
 
-        # 5. 类型(Genre)
-        ttk.Label(self.right_frame, text="类型(Genre):").grid(row=4, column=0, padx=5, pady=5, sticky="e")
+        # 6. 类型(Genre)
+        ttk.Label(self.right_frame, text="类型(Genre):").grid(row=5, column=0, padx=5, pady=5, sticky="e")
         self.genre_var = tk.StringVar(value=self.loaded_config.get("genre", "玄幻"))
-        ttk.Entry(self.right_frame, textvariable=self.genre_var, width=32).grid(row=4, column=1, padx=5, pady=5, sticky="w")
+        ttk.Entry(self.right_frame, textvariable=self.genre_var, width=32).grid(row=5, column=1, padx=5, pady=5, sticky="w")
 
-        # 6. 章节数
-        ttk.Label(self.right_frame, text="章节数:").grid(row=5, column=0, padx=5, pady=5, sticky="e")
+        # 7. 章节数
+        ttk.Label(self.right_frame, text="章节数:").grid(row=6, column=0, padx=5, pady=5, sticky="e")
         self.num_chapters_var = tk.IntVar(value=self.loaded_config.get("num_chapters", 10))
-        ttk.Entry(self.right_frame, textvariable=self.num_chapters_var, width=8).grid(row=5, column=1, padx=5, pady=5, sticky="w")
+        ttk.Entry(self.right_frame, textvariable=self.num_chapters_var, width=8).grid(row=6, column=1, padx=5, pady=5, sticky="w")
 
-        # 7. 每章字数
-        ttk.Label(self.right_frame, text="每章字数:").grid(row=6, column=0, padx=5, pady=5, sticky="e")
+        # 8. 每章字数
+        ttk.Label(self.right_frame, text="每章字数:").grid(row=7, column=0, padx=5, pady=5, sticky="e")
         self.word_number_var = tk.IntVar(value=self.loaded_config.get("word_number", 3000))
-        ttk.Entry(self.right_frame, textvariable=self.word_number_var, width=8).grid(row=6, column=1, padx=5, pady=5, sticky="w")
+        ttk.Entry(self.right_frame, textvariable=self.word_number_var, width=8).grid(row=7, column=1, padx=5, pady=5, sticky="w")
 
-        # 8. 文件保存路径
-        ttk.Label(self.right_frame, text="保存路径:").grid(row=7, column=0, padx=5, pady=5, sticky="e")
+        # 9. 文件保存路径
+        ttk.Label(self.right_frame, text="保存路径:").grid(row=8, column=0, padx=5, pady=5, sticky="e")
         self.filepath_var = tk.StringVar(value=self.loaded_config.get("filepath", ""))
-        ttk.Entry(self.right_frame, textvariable=self.filepath_var, width=32).grid(row=7, column=1, padx=5, pady=5, sticky="w")
-        ttk.Button(self.right_frame, text="浏览...", command=self.browse_folder).grid(row=7, column=2, padx=5, pady=5, sticky="w")
+        ttk.Entry(self.right_frame, textvariable=self.filepath_var, width=32).grid(row=8, column=1, padx=5, pady=5, sticky="w")
+        ttk.Button(self.right_frame, text="浏览...", command=self.browse_folder).grid(row=8, column=2, padx=5, pady=5, sticky="w")
 
         # 保存/加载配置按钮
         config_frame = ttk.Frame(self.right_frame)
-        config_frame.grid(row=8, column=1, sticky="w")
+        config_frame.grid(row=9, column=1, sticky="w")
         ttk.Button(config_frame, text="保存配置", command=self.save_config_btn).grid(row=0, column=0, padx=5)
         ttk.Button(config_frame, text="加载配置", command=self.load_config_btn).grid(row=0, column=1, padx=5)
 
-        # 按钮区域
-        row_base = 9
-        ttk.Label(self.right_frame, text="章节号:").grid(row=row_base, column=0, sticky="e")
+        # 10. 章节号
+        ttk.Label(self.right_frame, text="章节号:").grid(row=10, column=0, sticky="e")
         self.chapter_num_var = tk.IntVar(value=1)
-        ttk.Entry(self.right_frame, textvariable=self.chapter_num_var, width=6).grid(row=row_base, column=1, padx=5, pady=5, sticky="w")
+        ttk.Entry(self.right_frame, textvariable=self.chapter_num_var, width=6).grid(row=10, column=1, padx=5, pady=5, sticky="w")
 
+        # 11. “用户指导” 多行输入
+        ttk.Label(self.right_frame, text="本章指导:").grid(row=11, column=0, padx=5, pady=5, sticky="ne")
+        self.user_guide_text = scrolledtext.ScrolledText(self.right_frame, width=32, height=4)
+        self.user_guide_text.grid(row=11, column=1, padx=5, pady=5, sticky="w")
+
+        # 按钮区域
+        row_base = 12
         self.btn_generate_full = ttk.Button(self.right_frame, text="1. 生成设定 & 目录", command=self.generate_full_novel)
-        self.btn_generate_full.grid(row=row_base+1, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        self.btn_generate_full.grid(row=row_base, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         self.btn_generate_chapter = ttk.Button(self.right_frame, text="2. 生成单章(含角色状态)", command=self.generate_chapter_text)
-        self.btn_generate_chapter.grid(row=row_base+2, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        self.btn_generate_chapter.grid(row=row_base+1, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
-        # 可选：添加一个“一致性审校”按钮
         self.btn_check_consistency = ttk.Button(self.right_frame, text="3. 一致性审校", command=self.do_consistency_check)
-        self.btn_check_consistency.grid(row=row_base+3, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        self.btn_check_consistency.grid(row=row_base+2, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
+        # 增加一个按钮来导入自定义知识库文件
+        self.btn_import_knowledge = ttk.Button(self.right_frame, text="导入知识库", command=self.import_knowledge_handler)
+        self.btn_import_knowledge.grid(row=row_base+3, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
     # -------------- 配置管理 --------------
     def load_config_btn(self):
@@ -140,6 +163,7 @@ class NovelGeneratorGUI:
             self.api_key_var.set(cfg.get("api_key", ""))
             self.base_url_var.set(cfg.get("base_url", ""))
             self.model_name_var.set(cfg.get("model_name", ""))
+            self.temperature_var.set(cfg.get("temperature", 0.7))
             self.genre_var.set(cfg.get("genre", ""))
             self.num_chapters_var.set(cfg.get("num_chapters", 10))
             self.word_number_var.set(cfg.get("word_number", 3000))
@@ -158,6 +182,7 @@ class NovelGeneratorGUI:
             "api_key": self.api_key_var.get(),
             "base_url": self.base_url_var.get(),
             "model_name": self.model_name_var.get(),
+            "temperature": self.temperature_var.get(),
             "topic": self.topic_text.get("1.0", tk.END).strip(),
             "genre": self.genre_var.get(),
             "num_chapters": self.num_chapters_var.get(),
@@ -200,6 +225,7 @@ class NovelGeneratorGUI:
                 num_chapters = self.num_chapters_var.get()
                 word_number = self.word_number_var.get()
                 filepath = self.filepath_var.get().strip()
+                temperature = self.temperature_var.get()
 
                 if not filepath:
                     messagebox.showwarning("警告", "请先选择保存文件路径")
@@ -214,7 +240,8 @@ class NovelGeneratorGUI:
                     genre=genre,
                     number_of_chapters=num_chapters,
                     word_number=word_number,
-                    filepath=filepath
+                    filepath=filepath,
+                    temperature=temperature
                 )
                 self.log("✅ 小说设定和目录生成完成。查看 Novel_setting.txt 和 Novel_directory.txt。")
             except Exception as e:
@@ -226,7 +253,7 @@ class NovelGeneratorGUI:
         thread.start()
 
     def generate_chapter_text(self):
-        """多步生成章节：维护全局摘要+角色状态文档，向量检索辅助"""
+        """多步生成章节：维护全局摘要+角色状态文档，向量检索辅助，并结合目录信息和用户指导。"""
         def task():
             self.disable_button(self.btn_generate_chapter)
             try:
@@ -236,6 +263,7 @@ class NovelGeneratorGUI:
                 novel_number = self.chapter_num_var.get()
                 filepath = self.filepath_var.get().strip()
                 word_number = self.word_number_var.get()
+                temperature = self.temperature_var.get()
 
                 # 读取设定 & 目录
                 novel_settings_file = os.path.join(filepath, "Novel_setting.txt")
@@ -253,6 +281,9 @@ class NovelGeneratorGUI:
                     self.log("⚠️ 未找到 Novel_directory.txt，请先生成目录。")
                     return
 
+                # 用户对当前章节的指导
+                user_guidance = self.user_guide_text.get("1.0", tk.END).strip()
+
                 self.log(f"开始生成第{novel_number}章内容(含角色状态文档更新)...")
                 chapter_text = generate_chapter_with_state(
                     novel_settings=novel_settings,
@@ -263,11 +294,13 @@ class NovelGeneratorGUI:
                     novel_number=novel_number,
                     filepath=filepath,
                     word_number=word_number,
-                    lastchapter=lastchapter
+                    lastchapter=lastchapter,
+                    user_guidance=user_guidance,
+                    temperature=temperature
                 )
 
                 if chapter_text:
-                    self.log(f"✅ 第{novel_number}章内容生成完成。chapter.txt 已更新。")
+                    self.log(f"✅ 第{novel_number}章内容生成完成。chapter_{novel_number}.txt 已更新。")
                     self.chapter_result.delete("1.0", tk.END)
                     self.chapter_result.insert(tk.END, chapter_text)
                     self.chapter_result.see(tk.END)
@@ -291,6 +324,7 @@ class NovelGeneratorGUI:
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
                 filepath = self.filepath_var.get().strip()
+                temperature = self.temperature_var.get()
 
                 # 读取关键文件
                 novel_settings_file = os.path.join(filepath, "Novel_setting.txt")
@@ -315,7 +349,8 @@ class NovelGeneratorGUI:
                     chapter_text=last_chapter_text,
                     api_key=api_key,
                     base_url=base_url,
-                    model_name=model_name
+                    model_name=model_name,
+                    temperature=temperature
                 )
                 self.log("审校结果：")
                 self.log(result)
@@ -327,3 +362,29 @@ class NovelGeneratorGUI:
 
         thread = threading.Thread(target=task)
         thread.start()
+
+    def import_knowledge_handler(self):
+        """处理导入知识库文件。"""
+        selected_file = filedialog.askopenfilename(
+            title="选择要导入的知识库文件",
+            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
+        )
+        if selected_file:
+            def task():
+                self.disable_button(self.btn_import_knowledge)
+                try:
+                    self.log(f"开始导入知识库文件: {selected_file}")
+                    import_knowledge_file(
+                        api_key=self.api_key_var.get().strip(),
+                        base_url=self.base_url_var.get().strip(),
+                        file_path=selected_file
+                    )
+                    self.log("✅ 知识库文件导入完成。")
+                except Exception as e:
+                    self.log(f"❌ 导入知识库时出错: {e}")
+                finally:
+                    self.enable_button(self.btn_import_knowledge)
+
+            thread = threading.Thread(target=task)
+            thread.start()
+

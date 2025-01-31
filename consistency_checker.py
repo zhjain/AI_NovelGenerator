@@ -1,7 +1,5 @@
-"""
-演示多Agent思路中的“审校Agent”，对最新章节进行简单的一致性或逻辑冲突检查。
-可根据需要进行扩展。
-"""
+# consistency_checker.py
+# -*- coding: utf-8 -*-
 from langchain_openai import ChatOpenAI
 
 CONSISTENCY_PROMPT = """\
@@ -28,7 +26,8 @@ def check_consistency(
     chapter_text: str,
     api_key: str,
     base_url: str,
-    model_name: str
+    model_name: str,
+    temperature: float = 0.3
 ) -> str:
     """
     调用模型做简单的一致性检查。可扩展更多提示或校验规则。
@@ -43,9 +42,16 @@ def check_consistency(
         model=model_name,
         api_key=api_key,
         base_url=base_url,
-        temperature=0.3
+        temperature=temperature
     )
+    # 调试日志
+    print("\n[ConsistencyChecker] Prompt >>>", prompt)
+
     response = model.invoke(prompt)
     if not response:
         return "审校Agent无回复"
+
+    # 调试日志
+    print("[ConsistencyChecker] Response <<<", response.content.strip())
+
     return response.content.strip()

@@ -20,10 +20,22 @@
 ---
 
 ## **2. 安装依赖**
-**手动安装以下依赖**：
+
+**进入项目目录，执行**：
 ```bash
-pip install openai langchain chromadb langchain_openai langchain_chroma langgraph typing_extensions langchain-community
+pip install -r requirements.txt
 ```
+### 安装语句切分模型punkt（可选，默认程序运行后会自动加载）
+**Python环境终端输入**:
+```bash
+python
+import nltk
+nltk.download('punkt')
+```
+
+等待下载完成(很小，下载很快的)
+
+**至此，环境配置完成。**
 
 ---
 
@@ -81,6 +93,11 @@ pip install pyinstaller
 pyinstaller --onefile --windowed main.py
 ```
 这样会在 `dist/` 目录下生成 `main.exe`（Windows）或 `main`（Linux/macOS）。
+
+或者使用提供的`main.spec`，执行以下打包指令：
+```bash
+pyinstaller main.spec
+```
 
 ---
 
