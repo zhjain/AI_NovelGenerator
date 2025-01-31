@@ -42,20 +42,27 @@ def debug_log(prompt: str, response_content: str):
         logging.info(f"[Response >>>] {response_content}\n")
 # ============ 向量检索相关 ============
 
-VECTOR_STORE_DIR = "vectorstore"
+VECTOR_STORE_DIR = os.path.join(os.getcwd(), "vectorstore")
+if not os.path.exists(VECTOR_STORE_DIR):
+    os.makedirs(VECTOR_STORE_DIR)
 
 def clear_vector_store():
     """
-    清空本地向量库（删除 vectorstore 文件夹）。
+    清空本地向量库（删除 vectorstore 文件夹内的内容）。
     需要在UI中加一个二次确认弹窗，防止误删。
     """
     if os.path.exists(VECTOR_STORE_DIR):
         try:
             import shutil
-            shutil.rmtree(VECTOR_STORE_DIR)
+            for filename in os.listdir(VECTOR_STORE_DIR):
+                file_path = os.path.join(VECTOR_STORE_DIR, filename)
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
             logging.info("Local vector store has been cleared.")
         except Exception as e:
-            logging.warning(f"Failed to remove vector store: {e}")
+            logging.warning(f"Failed to clear vector store: {e}")
     else:
         logging.info("No vector store found to clear.")
 

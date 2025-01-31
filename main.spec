@@ -1,34 +1,31 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_all
+
+datas = []
+binaries = []
+hiddenimports = ['typing_extensions', 
+                 'langchain-openai',
+                 'langgraph', 
+                 'openai', 
+                 'nltk',
+                 'sentence_transformers',
+                 'scikit-learn',
+                 'langchain-community',
+                 'pydantic',
+                 'pydantic.deprecated.decorator',
+                 'tiktoken_ext.openai_public',
+                 'tiktoken_ext'
+                 ]
+tmp_ret = collect_all('chromadb')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
-    datas=[
-        ('vectorstore', 'vectorstore')
-    ],
-    hiddenimports=['typing_extensions', 
-                    'langchain-openai',
-                    'langgraph', 
-                    'openai', 
-                    'chromadb',
-                    'nltk',
-                    'sentence_transformers',
-                    'scikit-learn',
-                    'langchain-community',
-                    'pydantic',
-                    'pydantic.deprecated.decorator',
-                    *collect_submodules('chromadb'),
-                    'chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2',
-                    'chromadb.telemetry.product.posthog',
-                    'chromadb.api.segment',
-                    'chromadb.db.impl',
-                    'chromadb.db.impl.sqlite',
-                    'chromadb.migrations',
-                    'chromadb.migrations.embeddings_queue'
-                    
-                ],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -43,8 +40,8 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='AI_NovelGenerator_V1.1',
-    debug=False,
+    name='AI_NovelGenerator_V1.2.3',
+    debug=True,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
@@ -63,5 +60,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='AI_NovelGenerator_V1.1',
+    name='AI_NovelGenerator_V1.2.3'
 )

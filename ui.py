@@ -149,23 +149,23 @@ class NovelGeneratorGUI:
         # ============ 功能按钮 ============
 
         # (1) 生成设定 & 目录
-        self.btn_generate_full = ttk.Button(self.right_frame, text="1. 生成设定 & 目录", command=self.generate_full_novel)
+        self.btn_generate_full = ttk.Button(self.right_frame, text="Step1. 生成设定 & 目录", command=self.generate_full_novel)
         self.btn_generate_full.grid(row=row_base, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         # (2) 生成章节草稿
-        self.btn_generate_chapter = ttk.Button(self.right_frame, text="2. 生成章节草稿", command=self.generate_chapter_draft_ui)
+        self.btn_generate_chapter = ttk.Button(self.right_frame, text="Step2. 生成章节草稿", command=self.generate_chapter_draft_ui)
         self.btn_generate_chapter.grid(row=row_base+1, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         # (3) 定稿当前章节
-        self.btn_finalize_chapter = ttk.Button(self.right_frame, text="3. 定稿当前章节", command=self.finalize_chapter_ui)
+        self.btn_finalize_chapter = ttk.Button(self.right_frame, text="Step3. 定稿当前章节", command=self.finalize_chapter_ui)
         self.btn_finalize_chapter.grid(row=row_base+2, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         # (4) 一致性审校
-        self.btn_check_consistency = ttk.Button(self.right_frame, text="4. 一致性审校", command=self.do_consistency_check)
+        self.btn_check_consistency = ttk.Button(self.right_frame, text="[可选]一致性审校", command=self.do_consistency_check)
         self.btn_check_consistency.grid(row=row_base+3, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         # (5) 导入知识库文件
-        self.btn_import_knowledge = ttk.Button(self.right_frame, text="导入知识库", command=self.import_knowledge_handler)
+        self.btn_import_knowledge = ttk.Button(self.right_frame, text="[可选]导入知识库", command=self.import_knowledge_handler)
         self.btn_import_knowledge.grid(row=row_base+4, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         # (6) 清空向量库
@@ -321,7 +321,7 @@ class NovelGeneratorGUI:
                     filepath=filepath
                 )
                 if draft_text:
-                    self.log(f"✅ 第{chap_num}章草稿生成完成。请在左侧查看。")
+                    self.log(f"✅ 第{chap_num}章草稿生成完成。请在下方查看。")
                     self.chapter_result.delete("1.0", tk.END)
                     self.chapter_result.insert(tk.END, draft_text)
                     self.chapter_result.see(tk.END)
