@@ -9,8 +9,12 @@ from config_manager import load_config, save_config
 from utils import read_file
 from novel_generator import (
     Novel_novel_directory_generate,
-    generate_chapter_with_state,
-    import_knowledge_file
+    generate_chapter_draft,
+    finalize_chapter,
+    import_knowledge_file,
+    clear_vector_store,
+    get_last_n_chapters_text,
+    summarize_recent_chapters
 )
 from consistency_checker import check_consistency
 
@@ -65,7 +69,7 @@ class NovelGeneratorGUI:
 
     def build_right_layout(self):
         # 行列配置
-        for i in range(15):
+        for i in range(20):
             self.right_frame.rowconfigure(i, weight=0)
         self.right_frame.columnconfigure(1, weight=1)
 
@@ -141,20 +145,32 @@ class NovelGeneratorGUI:
         self.user_guide_text = scrolledtext.ScrolledText(self.right_frame, width=32, height=4)
         self.user_guide_text.grid(row=11, column=1, padx=5, pady=5, sticky="w")
 
-        # 按钮区域
         row_base = 12
+        # ============ 功能按钮 ============
+
+        # (1) 生成设定 & 目录
         self.btn_generate_full = ttk.Button(self.right_frame, text="1. 生成设定 & 目录", command=self.generate_full_novel)
         self.btn_generate_full.grid(row=row_base, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
-        self.btn_generate_chapter = ttk.Button(self.right_frame, text="2. 生成单章(含角色状态)", command=self.generate_chapter_text)
+        # (2) 生成章节草稿
+        self.btn_generate_chapter = ttk.Button(self.right_frame, text="2. 生成章节草稿", command=self.generate_chapter_draft_ui)
         self.btn_generate_chapter.grid(row=row_base+1, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
-        self.btn_check_consistency = ttk.Button(self.right_frame, text="3. 一致性审校", command=self.do_consistency_check)
-        self.btn_check_consistency.grid(row=row_base+2, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        # (3) 定稿当前章节
+        self.btn_finalize_chapter = ttk.Button(self.right_frame, text="3. 定稿当前章节", command=self.finalize_chapter_ui)
+        self.btn_finalize_chapter.grid(row=row_base+2, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
-        # 增加一个按钮来导入自定义知识库文件
+        # (4) 一致性审校
+        self.btn_check_consistency = ttk.Button(self.right_frame, text="4. 一致性审校", command=self.do_consistency_check)
+        self.btn_check_consistency.grid(row=row_base+3, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+
+        # (5) 导入知识库文件
         self.btn_import_knowledge = ttk.Button(self.right_frame, text="导入知识库", command=self.import_knowledge_handler)
-        self.btn_import_knowledge.grid(row=row_base+3, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        self.btn_import_knowledge.grid(row=row_base+4, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+
+        # (6) 清空向量库
+        self.btn_clear_vectorstore = ttk.Button(self.right_frame, text="清空向量库", command=self.clear_vectorstore_handler)
+        self.btn_clear_vectorstore.grid(row=row_base+5, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
     # -------------- 配置管理 --------------
     def load_config_btn(self):
@@ -205,7 +221,7 @@ class NovelGeneratorGUI:
         self.log_text.insert(tk.END, message + "\n")
         self.log_text.see(tk.END)
 
-    # -------------- 核心功能按钮 --------------
+    # -------------- 功能 --------------
     def disable_button(self, btn):
         btn.config(state=tk.DISABLED)
 
@@ -252,65 +268,110 @@ class NovelGeneratorGUI:
         thread = threading.Thread(target=task)
         thread.start()
 
-    def generate_chapter_text(self):
-        """多步生成章节：维护全局摘要+角色状态文档，向量检索辅助，并结合目录信息和用户指导。"""
+    def generate_chapter_draft_ui(self):
+        """生成当前章节的草稿"""
         def task():
             self.disable_button(self.btn_generate_chapter)
             try:
                 api_key = self.api_key_var.get().strip()
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
-                novel_number = self.chapter_num_var.get()
-                filepath = self.filepath_var.get().strip()
-                word_number = self.word_number_var.get()
                 temperature = self.temperature_var.get()
+                filepath = self.filepath_var.get().strip()
 
-                # 读取设定 & 目录
                 novel_settings_file = os.path.join(filepath, "Novel_setting.txt")
-                novel_novel_directory_file = os.path.join(filepath, "Novel_directory.txt")
-                last_chapter_file = os.path.join(filepath, "last_chapter.txt")
-
                 novel_settings = read_file(novel_settings_file)
-                novel_novel_directory = read_file(novel_novel_directory_file)
-                lastchapter = read_file(last_chapter_file)
-
                 if not novel_settings.strip():
                     self.log("⚠️ 未找到 Novel_setting.txt，请先生成设定。")
                     return
-                if not novel_novel_directory.strip():
-                    self.log("⚠️ 未找到 Novel_directory.txt，请先生成目录。")
-                    return
 
-                # 用户对当前章节的指导
+                character_state_file = os.path.join(filepath, "character_state.txt")
+                character_state = read_file(character_state_file)
+                global_summary_file = os.path.join(filepath, "global_summary.txt")
+                global_summary = read_file(global_summary_file)
+                novel_directory_file = os.path.join(filepath, "Novel_directory.txt")
+                novel_directory = read_file(novel_directory_file)
+
+                chap_num = self.chapter_num_var.get()
+                word_number = self.word_number_var.get()
                 user_guidance = self.user_guide_text.get("1.0", tk.END).strip()
 
-                self.log(f"开始生成第{novel_number}章内容(含角色状态文档更新)...")
-                chapter_text = generate_chapter_with_state(
+                # 获取最近3章文本，生成短期摘要
+                chapters_dir = os.path.join(filepath, "chapters")
+                recent_3_texts = get_last_n_chapters_text(chapters_dir, chap_num, n=3)
+                # 用当前模型生成一个较为详细的最近剧情摘要
+                model_obj = self.get_llm_model(model_name, api_key, base_url, temperature)
+                recent_chapters_summary = summarize_recent_chapters(model_obj, recent_3_texts)
+
+                self.log(f"开始生成第{chap_num}章草稿...")
+                draft_text = generate_chapter_draft(
                     novel_settings=novel_settings,
-                    novel_novel_directory=novel_novel_directory,
+                    global_summary=global_summary,
+                    character_state=character_state,
+                    recent_chapters_summary=recent_chapters_summary,
+                    user_guidance=user_guidance,
                     api_key=api_key,
                     base_url=base_url,
                     model_name=model_name,
-                    novel_number=novel_number,
-                    filepath=filepath,
+                    novel_number=chap_num,
                     word_number=word_number,
-                    lastchapter=lastchapter,
-                    user_guidance=user_guidance,
-                    temperature=temperature
+                    temperature=temperature,
+                    novel_novel_directory=novel_directory,
+                    filepath=filepath
                 )
-
-                if chapter_text:
-                    self.log(f"✅ 第{novel_number}章内容生成完成。chapter_{novel_number}.txt 已更新。")
+                if draft_text:
+                    self.log(f"✅ 第{chap_num}章草稿生成完成。请在左侧查看。")
                     self.chapter_result.delete("1.0", tk.END)
-                    self.chapter_result.insert(tk.END, chapter_text)
+                    self.chapter_result.insert(tk.END, draft_text)
                     self.chapter_result.see(tk.END)
                 else:
-                    self.log("⚠️ 本章生成失败或无内容。")
+                    self.log("⚠️ 本章草稿生成失败或无内容。")
 
             except Exception as e:
-                self.log(f"❌ 生成章节内容时出错: {e}")
+                self.log(f"❌ 生成章节草稿时出错: {e}")
             finally:
                 self.enable_button(self.btn_generate_chapter)
+
+        thread = threading.Thread(target=task)
+        thread.start()
+
+    def finalize_chapter_ui(self):
+        """定稿当前章节：更新全局摘要、角色状态、向量库等"""
+        def task():
+            self.disable_button(self.btn_finalize_chapter)
+            try:
+                api_key = self.api_key_var.get().strip()
+                base_url = self.base_url_var.get().strip()
+                model_name = self.model_name_var.get().strip()
+                temperature = self.temperature_var.get()
+                filepath = self.filepath_var.get().strip()
+
+                chap_num = self.chapter_num_var.get()
+                word_number = self.word_number_var.get()
+
+                self.log(f"开始定稿第{chap_num}章...")
+                finalize_chapter(
+                    novel_number=chap_num,
+                    word_number=word_number,
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    temperature=temperature,
+                    filepath=filepath
+                )
+                self.log(f"✅ 第{chap_num}章定稿完成（已更新全局摘要、角色状态、向量库）。")
+
+                # 读取定稿后的文本显示
+                chap_file = os.path.join(filepath, "chapters", f"chapter_{chap_num}.txt")
+                final_text = read_file(chap_file)
+                self.chapter_result.delete("1.0", tk.END)
+                self.chapter_result.insert(tk.END, final_text)
+                self.chapter_result.see(tk.END)
+
+            except Exception as e:
+                self.log(f"❌ 定稿章节时出错: {e}")
+            finally:
+                self.enable_button(self.btn_finalize_chapter)
 
         thread = threading.Thread(target=task)
         thread.start()
@@ -323,22 +384,25 @@ class NovelGeneratorGUI:
                 api_key = self.api_key_var.get().strip()
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
-                filepath = self.filepath_var.get().strip()
                 temperature = self.temperature_var.get()
+                filepath = self.filepath_var.get().strip()
 
                 # 读取关键文件
                 novel_settings_file = os.path.join(filepath, "Novel_setting.txt")
                 character_state_file = os.path.join(filepath, "character_state.txt")
                 global_summary_file = os.path.join(filepath, "global_summary.txt")
-                last_chapter_file = os.path.join(filepath, "last_chapter.txt")
 
                 novel_setting = read_file(novel_settings_file)
                 character_state = read_file(character_state_file)
                 global_summary = read_file(global_summary_file)
-                last_chapter_text = read_file(last_chapter_file)
 
-                if not last_chapter_text.strip():
-                    self.log("⚠️ last_chapter.txt 为空，暂无可检查的章节文本。")
+                # 获取当前章节文本
+                chap_num = self.chapter_num_var.get()
+                chap_file = os.path.join(filepath, "chapters", f"chapter_{chap_num}.txt")
+                chapter_text = read_file(chap_file)
+
+                if not chapter_text.strip():
+                    self.log("⚠️ 当前章节文件为空或不存在，无法审校。")
                     return
 
                 self.log("开始一致性审校...")
@@ -346,7 +410,7 @@ class NovelGeneratorGUI:
                     novel_setting=novel_setting,
                     character_state=character_state,
                     global_summary=global_summary,
-                    chapter_text=last_chapter_text,
+                    chapter_text=chapter_text,
                     api_key=api_key,
                     base_url=base_url,
                     model_name=model_name,
@@ -388,3 +452,26 @@ class NovelGeneratorGUI:
             thread = threading.Thread(target=task)
             thread.start()
 
+    def clear_vectorstore_handler(self):
+        """
+        清空向量库按钮：弹出二次确认，若确认则执行 clear_vector_store()。
+        """
+        def confirmed_clear():
+            # 再次确认
+            second_confirm = messagebox.askyesno("二次确认", "你确定真的要删除所有向量数据吗？此操作不可恢复！")
+            if second_confirm:
+                clear_vector_store()
+                self.log("已清空向量库。")
+
+        first_confirm = messagebox.askyesno("警告", "确定要清空本地向量库吗？此操作不可恢复！")
+        if first_confirm:
+            confirmed_clear()
+
+    def get_llm_model(self, model_name, api_key, base_url, temperature):
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=model_name,
+            api_key=api_key,
+            base_url=base_url,
+            temperature=temperature
+        )

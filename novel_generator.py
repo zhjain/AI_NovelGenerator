@@ -15,7 +15,6 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain.docstore.document import Document
 
-# 
 import nltk
 import math
 from sentence_transformers import SentenceTransformer
@@ -35,9 +34,24 @@ from prompt_definitions import (
 # ============ 日志配置 ============
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# ============ 向量检索相关函数（Chroma） ============
+# ============ 向量检索相关 ============
 
 VECTOR_STORE_DIR = "vectorstore"
+
+def clear_vector_store():
+    """
+    清空本地向量库（删除 vectorstore 文件夹）。
+    需要在UI中加一个二次确认弹窗，防止误删。
+    """
+    if os.path.exists(VECTOR_STORE_DIR):
+        try:
+            import shutil
+            shutil.rmtree(VECTOR_STORE_DIR)
+            logging.info("Local vector store has been cleared.")
+        except Exception as e:
+            logging.warning(f"Failed to remove vector store: {e}")
+    else:
+        logging.info("No vector store found to clear.")
 
 def init_vector_store(api_key: str, base_url: str, texts: List[str]) -> Chroma:
     """
@@ -118,16 +132,6 @@ def Novel_novel_directory_generate(
 ) -> None:
     """
     使用多步流程，生成 Novel_setting.txt 与 Novel_directory.txt 并保存到 filepath。
-
-    :param api_key:       OpenAI API key
-    :param base_url:      OpenAI API base url
-    :param llm_model:     所使用的 LLM 模型名称
-    :param topic:         小说主题
-    :param genre:         小说类型
-    :param number_of_chapters: 章节数
-    :param word_number:   单章目标字数
-    :param filepath:      存放生成文件的目录路径
-    :param temperature:   生成温度
     """
     # 确保文件夹存在
     os.makedirs(filepath, exist_ok=True)
@@ -142,7 +146,7 @@ def Novel_novel_directory_generate(
     def debug_log(prompt: str, response_content: str):
         """在控制台打印或记录下每次Prompt与Response，[调试]"""
         logging.info(f"\n[Prompt >>>] {prompt}\n")
-        logging.info(f"[Response <<<] {response_content}\n")
+        logging.info(f"[Response >>>] {response_content}\n")
 
     def generate_base_setting(state: OverallState) -> Dict[str, str]:
         prompt = set_prompt.format(
@@ -257,159 +261,74 @@ def Novel_novel_directory_generate(
 
     logging.info("Novel settings and directory generated successfully.")
 
-# ============ 生成章节（每章独立文件） ============
+# ============ 新增：获取最近N章内容，生成短期摘要 ============
 
-CHINESE_NUM_MAP = {
-    '零': 0, '○': 0, '〇': 0,
-    '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
-    '六': 6, '七': 7, '八': 8, '九': 9,
-    '十': 10, '百': 100, '千': 1000, '万': 10000
-}
-
-def chinese_to_arabic(chinese_str: str) -> int:
+def get_last_n_chapters_text(chapters_dir: str, current_chapter_num: int, n: int = 3) -> List[str]:
     """
-    只能处理到万(10000)以内的中文数字，正常小说章节应该够用了
+    从指定文件夹中，读取最近 n 章的内容（如果存在），并按从旧到新的顺序返回文本列表。
+    不包含当前章，只拿之前的 n 章。
     """
-    total = 0
-    current_unit = 1  # 记录当前单位
-    tmp_val = 0       # 暂存本轮数字
+    texts = []
+    start_chap = max(1, current_chapter_num - n)
+    for c in range(start_chap, current_chapter_num):
+        chap_file = os.path.join(chapters_dir, f"chapter_{c}.txt")
+        if os.path.exists(chap_file):
+            text = read_file(chap_file).strip()
+            if text:
+                texts.append(text)
+    return texts
 
-    for char in reversed(chinese_str):
-        if char in CHINESE_NUM_MAP:
-            val = CHINESE_NUM_MAP[char]
-            if val >= 10:
-                if val > current_unit:
-                    # 如 100, 1000, 10000
-                    current_unit = val
-                else:
-                    # 比如 “十二” -> 2 * 10 + 1
-                    # 如果 val <= current_unit, 那么相当于在这个单位下加
-                    total += tmp_val * val
-                    tmp_val = 0
-            else:
-                # 0~9
-                tmp_val = tmp_val + val * current_unit
-        else:
-            # 非中文数字字符，视情况决定怎么处理，这里直接跳过
-            pass
-    
-    total += tmp_val
-    return total
-
-def parse_chapter_title_from_directory(novel_directory_text: str, 
-                                       novel_number: int, 
-                                       range_size: int = 1) -> str:
+def summarize_recent_chapters(model: ChatOpenAI, chapters_text_list: List[str]) -> str:
     """
-    从小说目录文本中，提取指定章节（以及前后几章）的目录信息。
-    range_size=1，表示获取当前章节、前一章和后一章的目录信息(若存在)。
-    支持多种常见的章节格式。
+    将最近几章的文本拼接后，通过模型生成一个相对详细的“短期内容摘要”。
     """
+    if not chapters_text_list:
+        return ""
 
-    lines = novel_directory_text.splitlines()
+    # 拼接这几章的内容
+    combined_text = "\n".join(chapters_text_list)
+    # 在这里可以写一个更详细的提示
+    prompt = f"""\
+这是最近几章的故事内容，请生成一份详细的短期内容摘要（不少于一章篇幅的细节），用于帮助后续创作时回顾细节。请着重强调发生的事件、角色的心理和关系变化、冲突或悬念等。
 
-    # 可以根据需求自行扩展，这里列举了几种常见的章节标题格式，如果模型实在不听话，可以适当调整
-    # 每个pattern都应该捕获两个组：
-    # 1. chapter_num_str：章节数字(可能是中文也可能是阿拉伯数字)
-    # 2. chapter_title ：章节标题（.*）
-    patterns = [
-        # 1) 第12章 标题
-        r"^第\s*([\d]+)\s*章[:：]?\s*(.*)$",
-        # 2) 第十二章 标题（中文数字）
-        r"^第\s*([零○〇一二三四五六七八九十百千万]+)\s*章[:：]?\s*(.*)$",
-        # 3) Chapter 12 标题
-        r"^Chapter\s+(\d+)\s*[:：]?\s*(.*)$",
-        # 4) Ch 12 标题
-        r"^Ch\s+(\d+)\s*[:：]?\s*(.*)$",
-        # 5) 第12节 标题
-        r"^第\s*([\d]+)\s*节[:：]?\s*(.*)$",
-        # 6) 第12话 标题
-        r"^第\s*([\d]+)\s*话[:：]?\s*(.*)$",
-        # ... 更多模式 ...
-    ]
+{combined_text}
+"""
+    response = model.invoke(prompt)
+    if not response:
+        return ""
+    return response.content.strip()
 
-    # 用来存储匹配结果： chapter_num -> title
-    directory_map = {}
+# ============ 生成章节草稿 & 定稿 ============
 
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        
-        # 依次尝试每一种pattern
-        matched = False
-        for pat in patterns:
-            match = re.match(pat, line, flags=re.IGNORECASE)
-            if match:
-                chapter_num_str = match.group(1)
-                chapter_title   = match.group(2).strip()
-
-                # 如果是中文数字，需要转换
-                # 如果是阿拉伯数字，直接转 int 即可
-                if re.match(r"^[零○〇一二三四五六七八九十百千万]+$", chapter_num_str):
-                    chapter_num = chinese_to_arabic(chapter_num_str)
-                else:
-                    chapter_num = int(chapter_num_str)
-
-                directory_map[chapter_num] = chapter_title
-                matched = True
-                break
-        
-        # 如果已经匹配到其中一个pattern，就不需要继续匹配剩余pattern
-        if matched:
-            continue
-
-    # 收集需要的章节范围
-    chapters_info = []
-    for cnum in range(novel_number - range_size, novel_number + range_size + 1):
-        if cnum in directory_map:
-            if cnum == novel_number:
-                chapters_info.append(f"【当前】第{cnum}章：{directory_map[cnum]}")
-            else:
-                chapters_info.append(f"第{cnum}章：{directory_map[cnum]}")
-
-    if chapters_info:
-        return "\n".join(chapters_info)
-    return ""
-
-def generate_chapter_with_state(
+def generate_chapter_draft(
     novel_settings: str,
-    novel_novel_directory: str,
+    global_summary: str,
+    character_state: str,
+    recent_chapters_summary: str,
+    user_guidance: str,
     api_key: str,
     base_url: str,
     model_name: str,
     novel_number: int,
-    filepath: str,
     word_number: int,
-    lastchapter: str,
-    user_guidance: str = "",
-    temperature: float = 0.7
+    temperature: float,
+    novel_novel_directory: str,
+    filepath: str
 ) -> str:
     """
-    多步流程:
-      1) 更新/创建全局摘要
-      2) 更新/生成角色状态文档
-      3) 向量检索获取往期上下文
-      4) 从Novel_directory.txt中获取当前(和前后几章)的目录信息
-      5) 大纲 -> 正文（可结合用户给出的额外指导）
-      6) 写入 chapter_{novel_number}.txt, 更新 last_chapter.txt
-      7) 更新向量库
+    仅生成当前章节的草稿，不更新全局摘要/角色状态/向量库。
+    并将生成的内容写到 "chapter_{novel_number}.txt" 覆盖写入。
+    同时生成 "outline_{novel_number}.txt" 存储大纲内容。
 
-    :param novel_settings:        最终的作品设定（字符串）
-    :param novel_novel_directory: 小说目录信息
-    :param api_key:              OpenAI API Key
-    :param base_url:             OpenAI Base URL
-    :param model_name:           LLM 模型名称
-    :param novel_number:         当前要生成的章节号
-    :param filepath:             文件存放的目录
-    :param word_number:          单章目标字数
-    :param lastchapter:          上一章内容（若为空字符串，表示无上一章）
-    :param user_guidance:        用户对当前章节的额外指导或想法
-    :param temperature:          生成温度
-    :return:                     本章生成的正文内容
+    recent_chapters_summary: 最近 3 章的“短期内容摘要”
     """
-    # 确保文件夹存在
-    os.makedirs(filepath, exist_ok=True)
 
+    # 1) 从向量库检索往期上下文
+    relevant_context = get_relevant_context_from_vector_store(
+        api_key, base_url, "回顾剧情", k=2
+    )
+
+    # 2) 生成大纲（增加 recent_chapters_summary）
     model = ChatOpenAI(
         model=model_name,
         api_key=api_key,
@@ -417,25 +336,119 @@ def generate_chapter_with_state(
         temperature=temperature
     )
 
-    # 调试输出函数
-    def debug_log(prompt: str, response_content: str):
-        """在控制台打印或记录下每次的 Prompt 与 Response，便于观察生成过程。"""
-        logging.info(f"\n[Prompt >>>]\n{prompt}\n")
-        logging.info(f"[Response <<<]\n{response_content}\n")
+    # Prompt 拼接
+    outline_prompt = (
+        chapter_outline_prompt
+        + "\n\n【最近几章摘要】\n" + recent_chapters_summary
+        + "\n\n【用户指导】\n" + (user_guidance if user_guidance else "（无）")
+    ).format(
+        novel_setting=novel_settings,
+        character_state=character_state + "\n\n【历史上下文】\n" + relevant_context,
+        global_summary=global_summary,
+        novel_number=novel_number
+    )
 
-    # --- 文件路径定义 ---
+    response_outline = model.invoke(outline_prompt)
+    if not response_outline:
+        logging.warning("outline_chapter: No response.")
+        chapter_outline = ""
+    else:
+        chapter_outline = response_outline.content.strip()
+
+    # 将大纲写到 outline_{novel_number}.txt
+    outlines_dir = os.path.join(filepath, "outlines")
+    os.makedirs(outlines_dir, exist_ok=True)
+    outline_file = os.path.join(outlines_dir, f"outline_{novel_number}.txt")
+    clear_file_content(outline_file)
+    save_string_to_txt(chapter_outline, outline_file)
+
+    # 3) 生成正文草稿
+    writing_prompt = (
+        chapter_write_prompt
+        + "\n\n【最近几章摘要】\n" + recent_chapters_summary
+        + "\n\n【用户指导】\n" + (user_guidance if user_guidance else "（无）")
+    ).format(
+        novel_setting=novel_settings,
+        character_state=character_state + "\n\n【历史上下文】\n" + relevant_context,
+        global_summary=global_summary,
+        chapter_outline=chapter_outline,
+        word_number=word_number
+    )
+
+    response_chapter = model.invoke(writing_prompt)
+    if not response_chapter:
+        logging.warning("write_chapter: No response.")
+        chapter_content = ""
+    else:
+        chapter_content = response_chapter.content.strip()
+
+    # 4) 覆盖写到 chapter_{novel_number}.txt
     chapters_dir = os.path.join(filepath, "chapters")
     os.makedirs(chapters_dir, exist_ok=True)
-
     chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
-    lastchapter_file = os.path.join(filepath, "last_chapter.txt")
+    clear_file_content(chapter_file)
+    save_string_to_txt(chapter_content, chapter_file)
+
+    logging.info(f"[Draft] Chapter {novel_number} generated as a draft.")
+    return chapter_content
+
+def finalize_chapter(
+    novel_number: int,
+    word_number: int,
+    api_key: str,
+    base_url: str,
+    model_name: str,
+    temperature: float,
+    filepath: str
+):
+    """
+    对当前章节进行定稿：
+    1. 读取 chapter_{novel_number}.txt 的最终内容；
+    2. 更新全局摘要、角色状态文件；
+    3. 如果字数明显少于 word_number 的 80%，则自动调用 enrich_chapter_text 再次扩写；
+    4. 更新向量库。
+
+    * 注意：实际应用中，用户也可以再次编辑 chapter_{n}.txt 后再点定稿，这里示例不做 GUI 级别的文本编辑逻辑。
+    """
+    # 读取当前章节内容
+    chapters_dir = os.path.join(filepath, "chapters")
+    chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
+    chapter_text = read_file(chapter_file).strip()
+    if not chapter_text:
+        logging.warning(f"Chapter {novel_number} is empty, cannot finalize.")
+        return
+
+    # 读取角色状态 & 全局摘要
     character_state_file = os.path.join(filepath, "character_state.txt")
     global_summary_file = os.path.join(filepath, "global_summary.txt")
 
     old_char_state = read_file(character_state_file)
     old_global_summary = read_file(global_summary_file)
 
-    # 1) 更新全局摘要
+    # 1) 先检查字数是否过少，若少于 80% 则调用 enrich 逻辑
+    if len(chapter_text) < 0.8 * word_number:
+        logging.info("Chapter text seems shorter than 80% of desired length. Attempting to enrich content...")
+        chapter_text = enrich_chapter_text(
+            chapter_text=chapter_text,
+            word_number=word_number,
+            api_key=api_key,
+            base_url=base_url,
+            model_name=model_name,
+            temperature=temperature
+        )
+        # 覆盖写回文件
+        clear_file_content(chapter_file)
+        save_string_to_txt(chapter_text, chapter_file)
+        logging.info("Chapter text has been enriched and updated.")
+
+    # 2) 更新全局摘要
+    model = ChatOpenAI(
+        model=model_name,
+        api_key=api_key,
+        base_url=base_url,
+        temperature=temperature
+    )
+
     def update_global_summary(chapter_text: str, old_summary: str) -> str:
         prompt = summary_prompt.format(
             chapter_text=chapter_text,
@@ -445,15 +458,11 @@ def generate_chapter_with_state(
         if not response:
             logging.warning("update_global_summary: No response.")
             return old_summary
-        debug_log(prompt, response.content)
         return response.content.strip()
 
-    if lastchapter.strip():
-        new_global_summary = update_global_summary(lastchapter, old_global_summary)
-    else:
-        new_global_summary = old_global_summary
+    new_global_summary = update_global_summary(chapter_text, old_global_summary)
 
-    # 2) 更新角色状态文档
+    # 3) 更新角色状态
     def update_character_state(chapter_text: str, old_state: str) -> str:
         prompt = update_character_state_prompt.format(
             chapter_text=chapter_text,
@@ -463,128 +472,57 @@ def generate_chapter_with_state(
         if not response:
             logging.warning("update_character_state: No response.")
             return old_state
-        debug_log(prompt, response.content)
         return response.content.strip()
 
-    if lastchapter.strip():
-        new_char_state = update_character_state(lastchapter, old_char_state)
-    else:
-        new_char_state = old_char_state
+    new_char_state = update_character_state(chapter_text, old_char_state)
 
-    # 3) 从向量库检索上下文
-    relevant_context = get_relevant_context_from_vector_store(
-        api_key, base_url, "回顾剧情", k=2
+    # 4) 覆盖写入角色状态文件与全局摘要文件
+    clear_file_content(character_state_file)
+    save_string_to_txt(new_char_state, character_state_file)
+
+    clear_file_content(global_summary_file)
+    save_string_to_txt(new_global_summary, global_summary_file)
+
+    # 5) 更新向量检索库
+    update_vector_store(api_key, base_url, chapter_text)
+
+    logging.info(f"Chapter {novel_number} has been finalized (summary & state updated, vector store updated).")
+
+def enrich_chapter_text(
+    chapter_text: str,
+    word_number: int,
+    api_key: str,
+    base_url: str,
+    model_name: str,
+    temperature: float
+) -> str:
+    """
+    当章节篇幅不足时，调用此函数对章节文本进行二次扩写。
+    可以让模型补充场景描写、角色心理等，保证与现有文本风格一致。
+    """
+    model = ChatOpenAI(
+        model=model_name,
+        api_key=api_key,
+        base_url=base_url,
+        temperature=temperature
     )
+    prompt = f"""\
+以下是当前章节文本，可能篇幅较短，请在保持剧情连贯的前提下进行扩写，使其更充实、生动，并尽量靠近目标 {word_number} 字数。
 
-    # 4) 解析本章及前后章节目录信息
-    this_and_related_chapters = parse_chapter_title_from_directory(novel_novel_directory, novel_number, range_size=1)
+原章节内容：
+{chapter_text}
+"""
+    response = model.invoke(prompt)
+    if not response:
+        logging.warning("enrich_chapter_text: No response.")
+        return chapter_text  # 无响应时就返回原文
+    return response.content.strip()
 
-    # 5) 生成大纲
-    def outline_chapter(
-        novel_setting: str,
-        char_state: str,
-        global_summary: str,
-        chap_num: int,
-        extra_context: str,
-        directory_hint: str,
-        user_guide: str
-    ) -> str:
-        """
-        将目录提示以及用户额外指导内容一起放入 Prompt 中。
-        """
-        # 适度修改章节提纲提示词，以整合目录信息 & 用户指导
-        outline_prompt = (
-            chapter_outline_prompt
-            + "\n\n【目录参考】\n" + directory_hint
-            + "\n\n【用户指导】\n" + user_guide
-        ).format(
-            novel_setting=novel_setting,
-            character_state=char_state + "\n\n【历史上下文】\n" + extra_context,
-            global_summary=global_summary,
-            novel_number=chap_num
-        )
-
-        response = model.invoke(outline_prompt)
-        if not response:
-            logging.warning("outline_chapter: No response.")
-            return ""
-        debug_log(outline_prompt, response.content)
-        return response.content.strip()
-
-    chap_outline = outline_chapter(
-        novel_settings, new_char_state, new_global_summary, novel_number,
-        relevant_context, this_and_related_chapters, user_guidance
-    )
-
-    # 6) 生成正文
-    def write_chapter(
-        novel_setting: str,
-        char_state: str,
-        global_summary: str,
-        outline: str,
-        wnum: int,
-        extra_context: str,
-        directory_hint: str,
-        user_guide: str
-    ) -> str:
-        # 同理，整合目录信息和用户指导
-        writing_prompt = (
-            chapter_write_prompt
-            + "\n\n【目录参考】\n" + directory_hint
-            + "\n\n【用户指导】\n" + user_guide
-        ).format(
-            novel_setting=novel_setting,
-            character_state=char_state + "\n\n【历史上下文】\n" + extra_context,
-            global_summary=global_summary,
-            chapter_outline=outline,
-            word_number=wnum
-        )
-
-        response = model.invoke(writing_prompt)
-        if not response:
-            logging.warning("write_chapter: No response.")
-            return ""
-        debug_log(writing_prompt, response.content)
-        return response.content.strip()
-
-    chapter_content = write_chapter(
-        novel_settings,
-        new_char_state,
-        new_global_summary,
-        chap_outline,
-        word_number,
-        relevant_context,
-        this_and_related_chapters,
-        user_guidance
-    )
-
-    # 写入文件并更新记录
-    if chapter_content:
-        save_string_to_txt(chapter_content, chapter_file)
-
-        # 更新 last_chapter.txt
-        clear_file_content(lastchapter_file)
-        save_string_to_txt(chapter_content, lastchapter_file)
-
-        # 更新角色状态、全局摘要
-        clear_file_content(character_state_file)
-        save_string_to_txt(new_char_state, character_state_file)
-
-        clear_file_content(global_summary_file)
-        save_string_to_txt(new_global_summary, global_summary_file)
-
-        # 7) 更新向量检索库
-        update_vector_store(api_key, base_url, chapter_content)
-        logging.info(f"Chapter {novel_number} generated successfully.")
-    else:
-        logging.warning(f"Chapter {novel_number} generation failed.")
-
-    return chapter_content
+# ============ 导入外部知识文本 ============
 
 def import_knowledge_file(api_key: str, base_url: str, file_path: str) -> None:
     """
     将用户选定的文本文件导入到向量库，以便在写作时检索。
-    可以在UI中提供按钮来调用此函数。
     """
 
     # 1. 检查文件路径是否有效
@@ -614,31 +552,21 @@ def import_knowledge_file(api_key: str, base_url: str, file_path: str) -> None:
     store.persist()
     logging.info("知识库文件已成功导入至向量库。")
 
-
 def advanced_split_content(content: str,
                            similarity_threshold: float = 0.7,
                            max_length: int = 500) -> List[str]:
     """
     将文本先按句子切分，然后根据语义相似度进行合并，最后根据max_length进行二次切分。
-
-    :param content: 原始文本内容
-    :param similarity_threshold: 相邻句子合并的语义相似度阈值，小于此值则会开启新的段落
-    :param max_length: 每个段落的最大长度（按字符数计算，超过则进一步拆分）
-    :return: 切分好的段落列表
     """
-
-    # 1. 按句子切分
     nltk.download('punkt', quiet=True)  # 确保 punkt 数据可用
     sentences = nltk.sent_tokenize(content)
 
     if not sentences:
         return []
 
-    # 2. 加载 SentenceTransformer 模型，用于计算语义相似度
     model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
     embeddings = model.encode(sentences)
 
-    # 3. 根据相邻句子的语义相似度合并段落
     merged_paragraphs = []
     current_sentences = [sentences[0]]
     current_embedding = embeddings[0]
@@ -646,39 +574,28 @@ def advanced_split_content(content: str,
     for i in range(1, len(sentences)):
         sim = cosine_similarity([current_embedding], [embeddings[i]])[0][0]
         if sim >= similarity_threshold:
-            # 语义相似则并入当前段落
             current_sentences.append(sentences[i])
-            # 更新current_embedding为合并后的平均值（可选，也可只采用最后一句做比较）
             current_embedding = (current_embedding + embeddings[i]) / 2.0
         else:
-            # 语义相似度不足，另起一个新段落
             merged_paragraphs.append(" ".join(current_sentences))
             current_sentences = [sentences[i]]
             current_embedding = embeddings[i]
 
-    # 把最后一段加进去
     if current_sentences:
         merged_paragraphs.append(" ".join(current_sentences))
 
-    # 4. 根据最大长度 max_length 做二次拆分，避免段落过长
+    # 按最大长度二次拆分
     final_segments = []
     for para in merged_paragraphs:
-        # 如果段落长度超过max_length，进一步切分
         if len(para) > max_length:
             sub_segments = split_by_length(para, max_length=max_length)
             final_segments.extend(sub_segments)
         else:
             final_segments.append(para)
 
-    # 返回最终段落列表
     return final_segments
 
-
 def split_by_length(text: str, max_length: int = 500) -> List[str]:
-    """
-    将文本按照max_length进行拆分，以避免段落过长。
-    这里以字符数为单位进行简单的拆分，也可以改为按词数或token数等。
-    """
     segments = []
     start_idx = 0
     while start_idx < len(text):
