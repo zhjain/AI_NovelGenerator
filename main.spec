@@ -1,11 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
-
+from PyInstaller.utils.hooks import collect_submodules
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        ('vectorstore', 'vectorstore')
+    ],
     hiddenimports=['typing_extensions', 
                     'langchain-openai',
                     'langgraph', 
@@ -17,7 +19,15 @@ a = Analysis(
                     'langchain-community',
                     'pydantic',
                     'pydantic.deprecated.decorator',
-                    'chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2'
+                    *collect_submodules('chromadb'),
+                    'chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2',
+                    'chromadb.telemetry.product.posthog',
+                    'chromadb.api.segment',
+                    'chromadb.db.impl',
+                    'chromadb.db.impl.sqlite',
+                    'chromadb.migrations',
+                    'chromadb.migrations.embeddings_queue'
+                    
                 ],
     hookspath=[],
     hooksconfig={},
