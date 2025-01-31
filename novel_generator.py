@@ -31,9 +31,15 @@ from prompt_definitions import (
     chapter_outline_prompt, chapter_write_prompt
 )
 
+# ============ 新增：导入 chapter_directory_parser ============
+from chapter_directory_parser import get_chapter_info_from_directory
+
 # ============ 日志配置 ============
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-
+def debug_log(prompt: str, response_content: str):
+        """在控制台打印或记录下每次Prompt与Response，[调试]"""
+        logging.info(f"\n[Prompt >>>] {prompt}\n")
+        logging.info(f"[Response >>>] {response_content}\n")
 # ============ 向量检索相关 ============
 
 VECTOR_STORE_DIR = "vectorstore"
@@ -143,10 +149,7 @@ def Novel_novel_directory_generate(
         temperature=temperature
     )
 
-    def debug_log(prompt: str, response_content: str):
-        """在控制台打印或记录下每次Prompt与Response，[调试]"""
-        logging.info(f"\n[Prompt >>>] {prompt}\n")
-        logging.info(f"[Response >>>] {response_content}\n")
+    
 
     def generate_base_setting(state: OverallState) -> Dict[str, str]:
         prompt = set_prompt.format(
@@ -289,13 +292,15 @@ def summarize_recent_chapters(model: ChatOpenAI, chapters_text_list: List[str]) 
     combined_text = "\n".join(chapters_text_list)
     # 在这里可以写一个更详细的提示
     prompt = f"""\
-这是最近几章的故事内容，请生成一份详细的短期内容摘要（不少于一章篇幅的细节），用于帮助后续创作时回顾细节。请着重强调发生的事件、角色的心理和关系变化、冲突或悬念等。
+这是最近几章的故事内容，请生成一份详细的短期内容摘要（不少于一章篇幅的细节），用于帮助后续创作时回顾细节。
+请着重强调发生的事件、角色的心理和关系变化、冲突或悬念等。
 
 {combined_text}
 """
     response = model.invoke(prompt)
     if not response:
         return ""
+    debug_log(prompt, response.content)
     return response.content.strip()
 
 # ============ 生成章节草稿 & 定稿 ============
@@ -319,16 +324,20 @@ def generate_chapter_draft(
     仅生成当前章节的草稿，不更新全局摘要/角色状态/向量库。
     并将生成的内容写到 "chapter_{novel_number}.txt" 覆盖写入。
     同时生成 "outline_{novel_number}.txt" 存储大纲内容。
-
     recent_chapters_summary: 最近 3 章的“短期内容摘要”
     """
+
+    # 0) 根据 novel_number 从 novel_novel_directory 中获取本章标题及简述
+    chapter_info = get_chapter_info_from_directory(novel_novel_directory, novel_number)
+    chapter_title = chapter_info["chapter_title"]
+    chapter_brief = chapter_info["chapter_brief"]
 
     # 1) 从向量库检索往期上下文
     relevant_context = get_relevant_context_from_vector_store(
         api_key, base_url, "回顾剧情", k=2
     )
 
-    # 2) 生成大纲（增加 recent_chapters_summary）
+    # 2) 生成大纲
     model = ChatOpenAI(
         model=model_name,
         api_key=api_key,
@@ -337,22 +346,26 @@ def generate_chapter_draft(
     )
 
     # Prompt 拼接
-    outline_prompt = (
-        chapter_outline_prompt
-        + "\n\n【最近几章摘要】\n" + recent_chapters_summary
-        + "\n\n【用户指导】\n" + (user_guidance if user_guidance else "（无）")
-    ).format(
+    outline_prompt_text = chapter_outline_prompt.format(
         novel_setting=novel_settings,
         character_state=character_state + "\n\n【历史上下文】\n" + relevant_context,
         global_summary=global_summary,
-        novel_number=novel_number
+        novel_number=novel_number,
+        chapter_title=chapter_title,
+        chapter_brief=chapter_brief
     )
 
-    response_outline = model.invoke(outline_prompt)
+    # 在后面加上用户指导与最近章节摘要（可根据需要灵活组织）
+    outline_prompt_text += f"\n\n【本章目录标题与简述】\n标题：{chapter_title}\n简述：{chapter_brief}\n"
+    outline_prompt_text += f"\n【最近几章摘要】\n{recent_chapters_summary}"
+    outline_prompt_text += f"\n\n【用户指导】\n{user_guidance if user_guidance else '（无）'}"
+
+    response_outline = model.invoke(outline_prompt_text)
     if not response_outline:
-        logging.warning("outline_chapter: No response.")
+        logging.warning("generate_chapter_draft: outline no response.")
         chapter_outline = ""
     else:
+        debug_log(outline_prompt_text, response_outline.content)
         chapter_outline = response_outline.content.strip()
 
     # 将大纲写到 outline_{novel_number}.txt
@@ -363,23 +376,27 @@ def generate_chapter_draft(
     save_string_to_txt(chapter_outline, outline_file)
 
     # 3) 生成正文草稿
-    writing_prompt = (
-        chapter_write_prompt
-        + "\n\n【最近几章摘要】\n" + recent_chapters_summary
-        + "\n\n【用户指导】\n" + (user_guidance if user_guidance else "（无）")
-    ).format(
+    writing_prompt_text = chapter_write_prompt.format(
         novel_setting=novel_settings,
         character_state=character_state + "\n\n【历史上下文】\n" + relevant_context,
         global_summary=global_summary,
         chapter_outline=chapter_outline,
-        word_number=word_number
+        word_number=word_number,
+        chapter_title=chapter_title,
+        chapter_brief=chapter_brief
     )
 
-    response_chapter = model.invoke(writing_prompt)
+    # 同样插入用户指导和最近摘要
+    writing_prompt_text += f"\n\n【本章目录标题与简述】\n标题：{chapter_title}\n简述：{chapter_brief}\n"
+    writing_prompt_text += f"\n【最近几章摘要】\n{recent_chapters_summary}"
+    writing_prompt_text += f"\n\n【用户指导】\n{user_guidance if user_guidance else '（无）'}"
+
+    response_chapter = model.invoke(writing_prompt_text)
     if not response_chapter:
-        logging.warning("write_chapter: No response.")
+        logging.warning("generate_chapter_draft: writing no response.")
         chapter_content = ""
     else:
+        debug_log(writing_prompt_text, response_chapter.content)
         chapter_content = response_chapter.content.strip()
 
     # 4) 覆盖写到 chapter_{novel_number}.txt
@@ -407,8 +424,6 @@ def finalize_chapter(
     2. 更新全局摘要、角色状态文件；
     3. 如果字数明显少于 word_number 的 80%，则自动调用 enrich_chapter_text 再次扩写；
     4. 更新向量库。
-
-    * 注意：实际应用中，用户也可以再次编辑 chapter_{n}.txt 后再点定稿，这里示例不做 GUI 级别的文本编辑逻辑。
     """
     # 读取当前章节内容
     chapters_dir = os.path.join(filepath, "chapters")
@@ -458,6 +473,7 @@ def finalize_chapter(
         if not response:
             logging.warning("update_global_summary: No response.")
             return old_summary
+        debug_log(prompt, response.content)
         return response.content.strip()
 
     new_global_summary = update_global_summary(chapter_text, old_global_summary)
@@ -472,6 +488,7 @@ def finalize_chapter(
         if not response:
             logging.warning("update_character_state: No response.")
             return old_state
+        debug_log(prompt, response.content)
         return response.content.strip()
 
     new_char_state = update_character_state(chapter_text, old_char_state)
@@ -516,6 +533,7 @@ def enrich_chapter_text(
     if not response:
         logging.warning("enrich_chapter_text: No response.")
         return chapter_text  # 无响应时就返回原文
+    debug_log(prompt, response.content)
     return response.content.strip()
 
 # ============ 导入外部知识文本 ============

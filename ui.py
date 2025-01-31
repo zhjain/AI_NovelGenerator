@@ -21,7 +21,7 @@ from consistency_checker import check_consistency
 class NovelGeneratorGUI:
     def __init__(self, master):
         self.master = master
-        self.master.title("Novel Generator GUI - Advanced")
+        self.master.title("Novel Generator GUI")
 
         # 配置持久化
         self.config_file = "config.json"
@@ -93,7 +93,7 @@ class NovelGeneratorGUI:
         self.temperature_var = tk.DoubleVar(value=self.loaded_config.get("temperature", 0.7))
         self.temp_value_label = ttk.Label(self.right_frame, text=f"{self.temperature_var.get():.2f}")
         self.temp_value_label.grid(row=3, column=2, padx=5, pady=5, sticky="w")
-        
+
         temp_scale = ttk.Scale(self.right_frame, from_=0.0, to=1.0, orient=tk.HORIZONTAL, variable=self.temperature_var)
         temp_scale.grid(row=3, column=1, padx=5, pady=5, sticky="we")
         def update_temp_label(*args):
@@ -299,6 +299,7 @@ class NovelGeneratorGUI:
                 # 获取最近3章文本，生成短期摘要
                 chapters_dir = os.path.join(filepath, "chapters")
                 recent_3_texts = get_last_n_chapters_text(chapters_dir, chap_num, n=3)
+
                 # 用当前模型生成一个较为详细的最近剧情摘要
                 model_obj = self.get_llm_model(model_name, api_key, base_url, temperature)
                 recent_chapters_summary = summarize_recent_chapters(model_obj, recent_3_texts)
@@ -457,7 +458,6 @@ class NovelGeneratorGUI:
         清空向量库按钮：弹出二次确认，若确认则执行 clear_vector_store()。
         """
         def confirmed_clear():
-            # 再次确认
             second_confirm = messagebox.askyesno("二次确认", "你确定真的要删除所有向量数据吗？此操作不可恢复！")
             if second_confirm:
                 clear_vector_store()
