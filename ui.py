@@ -172,6 +172,11 @@ class NovelGeneratorGUI:
         self.btn_clear_vectorstore = ttk.Button(self.right_frame, text="清空向量库", command=self.clear_vectorstore_handler)
         self.btn_clear_vectorstore.grid(row=row_base+5, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
+        # (7) 查看剧情要点
+        ttk.Button(self.right_frame, text="[查看] 剧情要点", command=self.show_plot_arcs_ui).grid(
+            row=row_base+6, column=0, columnspan=2, padx=5, pady=5, sticky="ew"
+        )
+
     # -------------- 配置管理 --------------
     def load_config_btn(self):
         cfg = load_config(self.config_file)
@@ -360,7 +365,7 @@ class NovelGeneratorGUI:
                     temperature=temperature,
                     filepath=filepath
                 )
-                self.log(f"✅ 第{chap_num}章定稿完成（已更新全局摘要、角色状态、向量库）。")
+                self.log(f"✅ 第{chap_num}章定稿完成（已更新全局摘要、角色状态、剧情要点、向量库）。")
 
                 # 读取定稿后的文本显示
                 chap_file = os.path.join(filepath, "chapters", f"chapter_{chap_num}.txt")
@@ -392,10 +397,12 @@ class NovelGeneratorGUI:
                 novel_settings_file = os.path.join(filepath, "Novel_setting.txt")
                 character_state_file = os.path.join(filepath, "character_state.txt")
                 global_summary_file = os.path.join(filepath, "global_summary.txt")
+                plot_arcs_file = os.path.join(filepath, "plot_arcs.txt")  # 新增
 
                 novel_setting = read_file(novel_settings_file)
                 character_state = read_file(character_state_file)
                 global_summary = read_file(global_summary_file)
+                plot_arcs = read_file(plot_arcs_file)  # 新增
 
                 # 获取当前章节文本
                 chap_num = self.chapter_num_var.get()
@@ -415,7 +422,8 @@ class NovelGeneratorGUI:
                     api_key=api_key,
                     base_url=base_url,
                     model_name=model_name,
-                    temperature=temperature
+                    temperature=temperature,
+                    plot_arcs=plot_arcs  # 新增传入
                 )
                 self.log("审校结果：")
                 self.log(result)
@@ -466,6 +474,24 @@ class NovelGeneratorGUI:
         first_confirm = messagebox.askyesno("警告", "确定要清空本地向量库吗？此操作不可恢复！")
         if first_confirm:
             confirmed_clear()
+
+    # =========== 新增：在 UI 中查看当前剧情要点 =============
+    def show_plot_arcs_ui(self):
+        filepath = self.filepath_var.get().strip()
+        plot_arcs_file = os.path.join(filepath, "plot_arcs.txt")
+        if not os.path.exists(plot_arcs_file):
+            messagebox.showinfo("剧情要点", "当前还未生成任何剧情要点或未解决冲突。")
+            return
+        arcs_text = read_file(plot_arcs_file).strip()
+        if not arcs_text:
+            arcs_text = "当前没有记录的剧情要点或冲突。"
+        # 弹出一个简单的弹窗显示
+        top = tk.Toplevel(self.master)
+        top.title("剧情要点/未解决冲突")
+        text_area = scrolledtext.ScrolledText(top, width=60, height=20)
+        text_area.pack(fill="both", expand=True)
+        text_area.insert(tk.END, arcs_text)
+        text_area.config(state=tk.DISABLED)
 
     def get_llm_model(self, model_name, api_key, base_url, temperature):
         from langchain_openai import ChatOpenAI

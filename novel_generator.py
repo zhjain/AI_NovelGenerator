@@ -36,10 +36,12 @@ from chapter_directory_parser import get_chapter_info_from_directory
 
 # ============ 日志配置 ============
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
 def debug_log(prompt: str, response_content: str):
-        """在控制台打印或记录下每次Prompt与Response，[调试]"""
-        logging.info(f"\n[Prompt >>>] {prompt}\n")
-        logging.info(f"[Response >>>] {response_content}\n")
+    """在控制台打印或记录下每次Prompt与Response，[调试]"""
+    logging.info(f"\n[Prompt >>>] {prompt}\n")
+    logging.info(f"[Response >>>] {response_content}\n")
+
 # ============ 向量检索相关 ============
 
 VECTOR_STORE_DIR = os.path.join(os.getcwd(), "vectorstore")
@@ -156,8 +158,6 @@ def Novel_novel_directory_generate(
         temperature=temperature
     )
 
-    
-
     def generate_base_setting(state: OverallState) -> Dict[str, str]:
         prompt = set_prompt.format(
             topic=state["topic"],
@@ -271,7 +271,7 @@ def Novel_novel_directory_generate(
 
     logging.info("Novel settings and directory generated successfully.")
 
-# ============ 新增：获取最近N章内容，生成短期摘要 ============
+# ============ 获取最近N章内容，生成短期摘要 ============
 
 def get_last_n_chapters_text(chapters_dir: str, current_chapter_num: int, n: int = 3) -> List[str]:
     """
@@ -295,9 +295,7 @@ def summarize_recent_chapters(model: ChatOpenAI, chapters_text_list: List[str]) 
     if not chapters_text_list:
         return ""
 
-    # 拼接这几章的内容
     combined_text = "\n".join(chapters_text_list)
-    # 在这里可以写一个更详细的提示
     prompt = f"""\
 这是最近几章的故事内容，请生成一份详细的短期内容摘要（不少于一章篇幅的细节），用于帮助后续创作时回顾细节。
 请着重强调发生的事件、角色的心理和关系变化、冲突或悬念等。
@@ -307,6 +305,49 @@ def summarize_recent_chapters(model: ChatOpenAI, chapters_text_list: List[str]) 
     response = model.invoke(prompt)
     if not response:
         return ""
+    debug_log(prompt, response.content)
+    return response.content.strip()
+
+# ============ 新增1：记录剧情要点/未解决冲突 ============
+
+PLOT_ARCS_PROMPT = """\
+下面是新生成的章节内容:
+{chapter_text}
+
+这里是已记录的剧情要点/未解决冲突(可能为空):
+{old_plot_arcs}
+
+请基于新的章节内容，提炼出本章引入或延续的悬念、冲突、角色暗线等，将其合并到旧的剧情要点中。
+若有新的冲突则添加，若有已解决/不再重要的冲突可标注或移除。
+最终输出一份更新后的剧情要点列表，以帮助后续保持故事的整体一致性和悬念延续。
+"""
+
+def update_plot_arcs(
+    chapter_text: str,
+    old_plot_arcs: str,
+    api_key: str,
+    base_url: str,
+    model_name: str,
+    temperature: float
+) -> str:
+    """
+    利用模型分析最新章节文本，提炼或更新“未解决冲突或剧情要点”。
+    并返回更新后的字符串。
+    """
+    model = ChatOpenAI(
+        model=model_name,
+        api_key=api_key,
+        base_url=base_url,
+        temperature=temperature
+    )
+    prompt = PLOT_ARCS_PROMPT.format(
+        chapter_text=chapter_text,
+        old_plot_arcs=old_plot_arcs
+    )
+    response = model.invoke(prompt)
+    if not response:
+        logging.warning("update_plot_arcs: No response.")
+        return old_plot_arcs
     debug_log(prompt, response.content)
     return response.content.strip()
 
@@ -331,9 +372,7 @@ def generate_chapter_draft(
     仅生成当前章节的草稿，不更新全局摘要/角色状态/向量库。
     并将生成的内容写到 "chapter_{novel_number}.txt" 覆盖写入。
     同时生成 "outline_{novel_number}.txt" 存储大纲内容。
-    recent_chapters_summary: 最近 3 章的“短期内容摘要”
     """
-
     # 0) 根据 novel_number 从 novel_novel_directory 中获取本章标题及简述
     chapter_info = get_chapter_info_from_directory(novel_novel_directory, novel_number)
     chapter_title = chapter_info["chapter_title"]
@@ -352,7 +391,6 @@ def generate_chapter_draft(
         temperature=temperature
     )
 
-    # Prompt 拼接
     outline_prompt_text = chapter_outline_prompt.format(
         novel_setting=novel_settings,
         character_state=character_state + "\n\n【历史上下文】\n" + relevant_context,
@@ -362,7 +400,6 @@ def generate_chapter_draft(
         chapter_brief=chapter_brief
     )
 
-    # 在后面加上用户指导与最近章节摘要（可根据需要灵活组织）
     outline_prompt_text += f"\n\n【本章目录标题与简述】\n标题：{chapter_title}\n简述：{chapter_brief}\n"
     outline_prompt_text += f"\n【最近几章摘要】\n{recent_chapters_summary}"
     outline_prompt_text += f"\n\n【用户指导】\n{user_guidance if user_guidance else '（无）'}"
@@ -375,7 +412,6 @@ def generate_chapter_draft(
         debug_log(outline_prompt_text, response_outline.content)
         chapter_outline = response_outline.content.strip()
 
-    # 将大纲写到 outline_{novel_number}.txt
     outlines_dir = os.path.join(filepath, "outlines")
     os.makedirs(outlines_dir, exist_ok=True)
     outline_file = os.path.join(outlines_dir, f"outline_{novel_number}.txt")
@@ -393,7 +429,6 @@ def generate_chapter_draft(
         chapter_brief=chapter_brief
     )
 
-    # 同样插入用户指导和最近摘要
     writing_prompt_text += f"\n\n【本章目录标题与简述】\n标题：{chapter_title}\n简述：{chapter_brief}\n"
     writing_prompt_text += f"\n【最近几章摘要】\n{recent_chapters_summary}"
     writing_prompt_text += f"\n\n【用户指导】\n{user_guidance if user_guidance else '（无）'}"
@@ -406,7 +441,6 @@ def generate_chapter_draft(
         debug_log(writing_prompt_text, response_chapter.content)
         chapter_content = response_chapter.content.strip()
 
-    # 4) 覆盖写到 chapter_{novel_number}.txt
     chapters_dir = os.path.join(filepath, "chapters")
     os.makedirs(chapters_dir, exist_ok=True)
     chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
@@ -430,7 +464,8 @@ def finalize_chapter(
     1. 读取 chapter_{novel_number}.txt 的最终内容；
     2. 更新全局摘要、角色状态文件；
     3. 如果字数明显少于 word_number 的 80%，则自动调用 enrich_chapter_text 再次扩写；
-    4. 更新向量库。
+    4. 更新向量库；
+    5. 新增：更新剧情要点/未解决冲突 -> plot_arcs.txt
     """
     # 读取当前章节内容
     chapters_dir = os.path.join(filepath, "chapters")
@@ -440,12 +475,14 @@ def finalize_chapter(
         logging.warning(f"Chapter {novel_number} is empty, cannot finalize.")
         return
 
-    # 读取角色状态 & 全局摘要
+    # 读取角色状态 & 全局摘要 & 剧情要点
     character_state_file = os.path.join(filepath, "character_state.txt")
     global_summary_file = os.path.join(filepath, "global_summary.txt")
+    plot_arcs_file = os.path.join(filepath, "plot_arcs.txt")  # 新增文件
 
     old_char_state = read_file(character_state_file)
     old_global_summary = read_file(global_summary_file)
+    old_plot_arcs = read_file(plot_arcs_file)
 
     # 1) 先检查字数是否过少，若少于 80% 则调用 enrich 逻辑
     if len(chapter_text) < 0.8 * word_number:
@@ -500,17 +537,30 @@ def finalize_chapter(
 
     new_char_state = update_character_state(chapter_text, old_char_state)
 
-    # 4) 覆盖写入角色状态文件与全局摘要文件
+    # ============ 新增2: 更新剧情要点 =============
+    new_plot_arcs = update_plot_arcs(
+        chapter_text=chapter_text,
+        old_plot_arcs=old_plot_arcs,
+        api_key=api_key,
+        base_url=base_url,
+        model_name=model_name,
+        temperature=temperature
+    )
+
+    # 4) 覆盖写入角色状态文件、全局摘要文件、剧情要点文件
     clear_file_content(character_state_file)
     save_string_to_txt(new_char_state, character_state_file)
 
     clear_file_content(global_summary_file)
     save_string_to_txt(new_global_summary, global_summary_file)
 
+    clear_file_content(plot_arcs_file)
+    save_string_to_txt(new_plot_arcs, plot_arcs_file)
+
     # 5) 更新向量检索库
     update_vector_store(api_key, base_url, chapter_text)
 
-    logging.info(f"Chapter {novel_number} has been finalized (summary & state updated, vector store updated).")
+    logging.info(f"Chapter {novel_number} has been finalized (summary & state updated, plot arcs updated, vector store updated).")
 
 def enrich_chapter_text(
     chapter_text: str,
@@ -549,29 +599,23 @@ def import_knowledge_file(api_key: str, base_url: str, file_path: str) -> None:
     """
     将用户选定的文本文件导入到向量库，以便在写作时检索。
     """
-
-    # 1. 检查文件路径是否有效
     if not os.path.exists(file_path):
         logging.warning(f"知识库文件不存在: {file_path}")
         return
 
-    # 2. 读取文件内容
     content = read_file(file_path)
     if not content.strip():
         logging.warning("知识库文件内容为空。")
         return
 
-    # 3. 对内容进行高级切分处理
     paragraphs = advanced_split_content(content)
 
-    # 4. 加载或初始化向量存储
     store = load_vector_store(api_key, base_url)
     if not store:
         logging.info("Vector store does not exist. Initializing a new one for knowledge import...")
         init_vector_store(api_key, base_url, paragraphs)
         return
 
-    # 5. 创建Document对象并更新到向量库
     docs = [Document(page_content=p) for p in paragraphs]
     store.add_documents(docs)
     store.persist()
@@ -609,7 +653,6 @@ def advanced_split_content(content: str,
     if current_sentences:
         merged_paragraphs.append(" ".join(current_sentences))
 
-    # 按最大长度二次拆分
     final_segments = []
     for para in merged_paragraphs:
         if len(para) > max_length:

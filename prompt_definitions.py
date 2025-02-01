@@ -5,7 +5,6 @@
 """
 
 # ===============  提示词：设定 & 目录  ===================
-
 set_prompt = """\
 请根据主题:{topic}、类型:{genre}、章数:{number_of_chapters}、每章字数:{word_number}来完善小说整体设定。
 需要包含以下信息：
@@ -72,7 +71,6 @@ novel_directory_prompt = """\
 """
 
 # ===============  提示词：章节+角色状态流程 ===================
-
 summary_prompt = """\
 这是新生成的章节文本:
 {chapter_text}
@@ -101,8 +99,6 @@ update_character_state_prompt = """\
 
 使用简洁、易读的方式描述，可用条目或段落表示。保持与旧文档风格一致。
 """
-
-# ------------------ 新增占位符：chapter_title, chapter_brief ------------------
 
 chapter_outline_prompt = """\
 以下是当前小说设定与角色状态信息：
