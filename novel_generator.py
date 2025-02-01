@@ -583,7 +583,7 @@ def advanced_split_content(content: str,
     """
     将文本先按句子切分，然后根据语义相似度进行合并，最后根据max_length进行二次切分。
     """
-    nltk.download('punkt', quiet=True)  # 确保 punkt 数据可用
+    nltk.download('punkt_tab', quiet=True)
     sentences = nltk.sent_tokenize(content)
 
     if not sentences:

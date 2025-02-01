@@ -45,11 +45,11 @@
    ```bash
    pip install -r requirements.txt
    ```
-3. （可选）若需要手动安装 `nltk` 的 `punkt` 数据包：
+3. （可选）若需要手动安装 `nltk` 的 `punkt_tab` 数据包：
    ```bash
    python
    >>> import nltk
-   >>> nltk.download('punkt')
+   >>> nltk.download('punkt_tab')
    ```
 
 ---
