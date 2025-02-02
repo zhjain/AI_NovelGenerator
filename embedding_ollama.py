@@ -1,14 +1,9 @@
-# embedding_ollama.py
+import logging
 import requests
 from typing import List
+import traceback
 
 class OllamaEmbeddings:
-    """
-    Ollama 本地服务提供的 Embedding 接口，
-    本需求里我们最终拼出形如: http://localhost:11434/api/embed
-    即 base_url + "/embed"
-    """
-
     def __init__(self, model_name: str, base_url: str):
         self.model_name = model_name
         self.base_url = base_url  # 这里应形如 http://localhost:11434/api (不再含 /v1)
@@ -49,6 +44,28 @@ class OllamaEmbeddings:
             response = requests.post(url, json=data)
             response.raise_for_status()
             result = response.json()
+            print(result)
+
+            # 检查返回结果是否包含 'embedding' 字段
+            if "embedding" not in result:
+                logging.warning(f"No 'embedding' field in response. Returning empty embedding.")
+                return []  # 返回空列表
             return result["embedding"]
+
         except requests.exceptions.RequestException as e:
-            raise Exception(f"Ollama embeddings request error: {e}")
+            logging.error(f"Ollama embeddings request error: {e}")
+            logging.error(f"Request URL: {url}")
+            logging.error(f"Request Data: {data}")
+            logging.error("Full error details:\n" + traceback.format_exc())
+            return []
+
+        except ValueError as e:
+            logging.error(f"Invalid response structure: {e}")
+            logging.error(f"Response content: {response.text}")
+            logging.error("Full error details:\n" + traceback.format_exc())
+            return []
+
+        except Exception as e:
+            logging.error(f"Unexpected error: {e}")
+            logging.error("Full error details:\n" + traceback.format_exc())
+            return []
