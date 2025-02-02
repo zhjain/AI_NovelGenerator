@@ -5,11 +5,13 @@ import logging
 import re
 from typing import Dict, List, Optional
 from typing import TypedDict
+
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain.docstore.document import Document
+
 import nltk
 import math
 from sentence_transformers import SentenceTransformer
@@ -32,8 +34,29 @@ from chapter_directory_parser import get_chapter_info_from_directory
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 def debug_log(prompt: str, response_content: str):
+    """
+    打印prompt和response的辅助函数
+    """
     logging.info(f"\n[Prompt >>>] {prompt}\n")
     logging.info(f"[Response >>>] {response_content}\n")
+
+def remove_think_tags(text: str) -> str:
+    """
+    移除 <think>...</think> 包裹的内容
+    """
+    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+
+def invoke_with_cleaning(model: ChatOpenAI, prompt: str) -> str:
+    """
+    通用封装：调用模型并移除 <think>...</think> 文本，记录日志后返回
+    """
+    response = model.invoke(prompt)
+    if not response:
+        logging.warning("No response from model.")
+        return ""
+    cleaned_text = remove_think_tags(response.content)
+    debug_log(prompt, cleaned_text)
+    return cleaned_text.strip()
 
 # ============ 判断接口格式相关 ============
 
@@ -272,34 +295,22 @@ def Novel_novel_directory_generate(
             number_of_chapters=state["number_of_chapters"],
             word_number=state["word_number"]
         )
-        response = model.invoke(prompt)
-        if not response:
-            logging.warning("generate_base_setting: No response.")
-            return {"novel_setting_base": ""}
-        debug_log(prompt, response.content)
-        return {"novel_setting_base": response.content.strip()}
+        result_text = invoke_with_cleaning(model, prompt)
+        return {"novel_setting_base": result_text}
 
     def generate_character_setting(state: OverallState) -> Dict[str, str]:
         prompt = character_prompt.format(
             novel_setting=state["novel_setting_base"]
         )
-        response = model.invoke(prompt)
-        if not response:
-            logging.warning("generate_character_setting: No response.")
-            return {"character_setting": ""}
-        debug_log(prompt, response.content)
-        return {"character_setting": response.content.strip()}
+        result_text = invoke_with_cleaning(model, prompt)
+        return {"character_setting": result_text}
 
     def generate_dark_lines(state: OverallState) -> Dict[str, str]:
         prompt = dark_lines_prompt.format(
             character_info=state["character_setting"]
         )
-        response = model.invoke(prompt)
-        if not response:
-            logging.warning("generate_dark_lines: No response.")
-            return {"dark_lines": ""}
-        debug_log(prompt, response.content)
-        return {"dark_lines": response.content.strip()}
+        result_text = invoke_with_cleaning(model, prompt)
+        return {"dark_lines": result_text}
 
     def finalize_novel_setting_func(state: OverallState) -> Dict[str, str]:
         prompt = finalize_setting_prompt.format(
@@ -307,24 +318,16 @@ def Novel_novel_directory_generate(
             character_setting=state["character_setting"],
             dark_lines=state["dark_lines"]
         )
-        response = model.invoke(prompt)
-        if not response:
-            logging.warning("finalize_novel_setting: No response.")
-            return {"final_novel_setting": ""}
-        debug_log(prompt, response.content)
-        return {"final_novel_setting": response.content.strip()}
+        result_text = invoke_with_cleaning(model, prompt)
+        return {"final_novel_setting": result_text}
 
     def generate_novel_directory_func(state: OverallState) -> Dict[str, str]:
         prompt = novel_directory_prompt.format(
             final_novel_setting=state["final_novel_setting"],
             number_of_chapters=state["number_of_chapters"]
         )
-        response = model.invoke(prompt)
-        if not response:
-            logging.warning("generate_novel_directory: No response.")
-            return {"novel_directory": ""}
-        debug_log(prompt, response.content)
-        return {"novel_directory": response.content.strip()}
+        result_text = invoke_with_cleaning(model, prompt)
+        return {"novel_directory": result_text}
 
     graph = StateGraph(OverallState)
     graph.add_node("generate_base_setting", generate_base_setting)
@@ -410,7 +413,6 @@ def summarize_recent_chapters(
     """
     if not chapters_text_list:
         return ""
-    # 如果列表里全是空，则无法生成摘要
     if all(not txt.strip() for txt in chapters_text_list):
         return "暂无摘要。"
 
@@ -427,11 +429,11 @@ def summarize_recent_chapters(
 
 请用中文输出不超过500字的摘要，只包含主要剧情进展、角色变化、冲突焦点等要点："""
 
-    response = model.invoke(prompt)
-    if not response or not response.content.strip():
+    summary_text = invoke_with_cleaning(model, prompt)
+    if not summary_text:
         # 若模型无响应，就截取一段作为“备选”
         return combined_text[:800] + "..." if len(combined_text) > 800 else combined_text
-    return response.content.strip()
+    return summary_text
 
 # ============ 新增：剧情要点/未解决冲突 ============
 
@@ -465,11 +467,11 @@ def update_plot_arcs(
         chapter_text=chapter_text,
         old_plot_arcs=old_plot_arcs
     )
-    response = model.invoke(prompt)
-    if not response:
-        logging.warning("update_plot_arcs: No response.")
+    arcs_text = invoke_with_cleaning(model, prompt)
+    if not arcs_text:
+        logging.warning("update_plot_arcs: No response or empty result.")
         return old_plot_arcs
-    return response.content.strip()
+    return arcs_text
 
 # ============ 生成章节草稿 & 定稿 ============
 
@@ -542,8 +544,7 @@ def generate_chapter_draft(
     outline_prompt_text += f"\n\n【最近几章摘要】\n{recent_chapters_summary}"
     outline_prompt_text += f"\n\n【用户指导】\n{user_guidance if user_guidance else '（无）'}"
 
-    response_outline = model.invoke(outline_prompt_text)
-    chapter_outline = response_outline.content.strip() if response_outline else ""
+    chapter_outline = invoke_with_cleaning(model, outline_prompt_text)
 
     outlines_dir = os.path.join(filepath, "outlines")
     os.makedirs(outlines_dir, exist_ok=True)
@@ -564,8 +565,7 @@ def generate_chapter_draft(
     writing_prompt_text += f"\n\n【最近几章摘要】\n{recent_chapters_summary}"
     writing_prompt_text += f"\n\n【用户指导】\n{user_guidance if user_guidance else '（无）'}"
 
-    response_chapter = model.invoke(writing_prompt_text)
-    chapter_content = response_chapter.content.strip() if response_chapter else ""
+    chapter_content = invoke_with_cleaning(model, writing_prompt_text)
 
     chapters_dir = os.path.join(filepath, "chapters")
     os.makedirs(chapters_dir, exist_ok=True)
@@ -637,8 +637,7 @@ def finalize_chapter(
             chapter_text=chapter_text,
             global_summary=old_summary
         )
-        response = model.invoke(prompt)
-        return response.content.strip() if response else old_summary
+        return invoke_with_cleaning(model, prompt) or old_summary
 
     new_global_summary = update_global_summary(chapter_text, old_global_summary)
 
@@ -648,8 +647,7 @@ def finalize_chapter(
             chapter_text=chapter_text,
             old_state=old_state
         )
-        response = model.invoke(prompt)
-        return response.content.strip() if response else old_state
+        return invoke_with_cleaning(model, prompt) or old_state
 
     new_char_state = update_character_state(chapter_text, old_char_state)
 
@@ -705,11 +703,8 @@ def enrich_chapter_text(
 
 原章节内容：
 {chapter_text}"""
-
-    response = model.invoke(prompt)
-    if not response:
-        return chapter_text
-    return response.content.strip()
+    enriched_text = invoke_with_cleaning(model, prompt)
+    return enriched_text if enriched_text else chapter_text
 
 # ============ 导入外部知识文本 ============
 
@@ -734,7 +729,8 @@ def import_knowledge_file(
         logging.warning("知识库文件内容为空。")
         return
 
-    nltk.download('punkt_tab', quiet=True)
+    # 改为下载 punkt_tab
+    nltk.download('punkt', quiet=True)
 
     paragraphs = advanced_split_content(content)
 

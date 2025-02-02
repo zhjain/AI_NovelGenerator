@@ -33,7 +33,7 @@ ctk.set_default_color_theme("blue")
 class NovelGeneratorGUI:
     def __init__(self, master):
         self.master = master
-        self.master.title("Novel Generator GUI (CustomTkinter)")
+        self.master.title("Novel Generator GUI")
 
         # 防止因 icon.ico 不存在导致程序崩溃
         try:

@@ -11,7 +11,7 @@ class OllamaEmbeddings:
 
     def __init__(self, model_name: str, base_url: str):
         self.model_name = model_name
-        self.base_url = base_url  # 这里一般形如 http://localhost:11434/api (而非 /v1)
+        self.base_url = base_url
 
     def embed(self, texts: List[str]) -> List[List[float]]:
         """
