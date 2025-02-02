@@ -31,7 +31,7 @@ class NovelGeneratorGUI:
         # 窗口最大化
         self.master.state("zoomed")
         # 配置窗口大小
-        self.master.geometry("1344x896")
+        self.master.geometry("1428x960")
 
         # 配置持久化
         self.config_file = "config.json"
@@ -61,7 +61,7 @@ class NovelGeneratorGUI:
         self.tabview.pack(fill="both", expand=True)
 
         # 创建各个Tab
-        self.main_tab = self.tabview.add("主功能")
+        self.main_tab = self.tabview.add("Main Functions")
         self.setting_tab = self.tabview.add("Novel Settings")
         self.directory_tab = self.tabview.add("Novel Directory")
         self.character_tab = self.tabview.add("Character State")
@@ -137,25 +137,31 @@ class NovelGeneratorGUI:
         右侧用于显示配置与功能按钮。
         其中配置被拆分到一个子 TabView：AI接口配置 和 Embedding配置。
         下面再放与小说相关的输入(主题/类型/章节数等)与功能按钮。
+        
+        另：我们只使用 2 列布局，0 列放标签，1 列放输入框或子区域，保证对齐。
         """
-        # 第一行创建一个子 TabView 放置 AI 配置 & Embedding 配置
-        self.config_tabview = ctk.CTkTabview(self.right_frame, width=350, height=300)
-        self.config_tabview.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
+        self.right_frame.grid_rowconfigure(0, weight=0)
+        self.right_frame.grid_rowconfigure(1, weight=0)
+        self.right_frame.grid_rowconfigure(2, weight=1)
+        self.right_frame.grid_columnconfigure(0, weight=0)
+        self.right_frame.grid_columnconfigure(1, weight=1)
 
-        self.ai_config_tab = self.config_tabview.add("AI接口配置")
-        self.embeddings_config_tab = self.config_tabview.add("Embedding配置")
+        # ========== 1. 配置项 TabView（AI接口配置 & Embedding配置） ==========
+        self.config_tabview = ctk.CTkTabview(self.right_frame)
+        self.config_tabview.grid(row=0, column=0, columnspan=2, sticky="we", padx=5, pady=5)
 
-        # 分别构建这两个 Tab 的布局
+        self.ai_config_tab = self.config_tabview.add("LLM Model settings")
+        self.embeddings_config_tab = self.config_tabview.add("Embedding settings")
+
+        # 构建这两个 Tab 的布局
         self.build_ai_config_tab()
         self.build_embeddings_config_tab()
 
-        # 下面再放其他通用参数(主题、类型等) & 功能按钮
-        row_base = 1
-        # row_base + 1 处构建剩余输入，如topic, genre, etc.
-        self.build_novel_params_area(start_row=row_base+1)
+        # ========== 2. 与小说相关的参数区 ==========
+        self.build_novel_params_area(start_row=1)
 
-        # 最后放一些主功能按钮
-        self.build_main_buttons_area(start_row=row_base+10)
+        # ========== 3. 放主要功能按钮 & “保存/加载配置”按钮区 ==========
+        self.build_main_buttons_area(start_row=10)
 
     def build_ai_config_tab(self):
         """
@@ -167,42 +173,55 @@ class NovelGeneratorGUI:
         - Temperature
         """
         # 配置网格
-        for i in range(6):
+        for i in range(5):
             self.ai_config_tab.grid_rowconfigure(i, weight=0)
         self.ai_config_tab.grid_columnconfigure(0, weight=0)
         self.ai_config_tab.grid_columnconfigure(1, weight=1)
 
+        # 回调：当接口格式下拉框发生变更时，如果 Base URL 为空，则根据接口类型自动填默认值
+        def on_interface_format_changed(new_value):
+            # current_base = self.base_url_var.get().strip()
+            # if not current_base:
+                if new_value == "Ollama":
+                    self.base_url_var.set("http://localhost:11434/v1")
+                elif new_value == "ML Studio":
+                    self.base_url_var.set("http://localhost:1234/v1")
+                elif new_value == "OpenAI":
+                    self.base_url_var.set("https://api.agicto.cn/v1")
+
         # 1. API Key
-        api_key_label = ctk.CTkLabel(self.ai_config_tab, text="API Key:")
+        api_key_label = ctk.CTkLabel(self.ai_config_tab, text="API Key:", font=("Microsoft YaHei", 12))
         api_key_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        api_key_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.api_key_var)
+        api_key_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.api_key_var, font=("Microsoft YaHei", 12))
         api_key_entry.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
         # 2. Base URL
-        base_url_label = ctk.CTkLabel(self.ai_config_tab, text="Base URL:")
+        base_url_label = ctk.CTkLabel(self.ai_config_tab, text="Base URL:", font=("Microsoft YaHei", 12))
         base_url_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
-        base_url_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.base_url_var)
+        base_url_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.base_url_var, font=("Microsoft YaHei", 12))
         base_url_entry.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
 
         # 3. 接口格式
-        interface_label = ctk.CTkLabel(self.ai_config_tab, text="接口格式:")
+        interface_label = ctk.CTkLabel(self.ai_config_tab, text="接口格式:", font=("Microsoft YaHei", 12))
         interface_label.grid(row=2, column=0, padx=5, pady=5, sticky="e")
         interface_options = ["OpenAI", "Ollama", "ML Studio", "Local"]
         interface_dropdown = ctk.CTkOptionMenu(
             self.ai_config_tab, 
             values=interface_options, 
-            variable=self.interface_format_var
+            variable=self.interface_format_var,
+            command=on_interface_format_changed,
+            font=("Microsoft YaHei", 12)
         )
         interface_dropdown.grid(row=2, column=1, padx=5, pady=5, sticky="nsew")
 
         # 4. 模型名称
-        model_name_label = ctk.CTkLabel(self.ai_config_tab, text="Model Name:")
+        model_name_label = ctk.CTkLabel(self.ai_config_tab, text="Model Name:", font=("Microsoft YaHei", 12))
         model_name_label.grid(row=3, column=0, padx=5, pady=5, sticky="e")
-        model_name_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.model_name_var)
+        model_name_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.model_name_var, font=("Microsoft YaHei", 12))
         model_name_entry.grid(row=3, column=1, padx=5, pady=5, sticky="nsew")
 
         # 5. Temperature
-        temp_label = ctk.CTkLabel(self.ai_config_tab, text="Temperature:")
+        temp_label = ctk.CTkLabel(self.ai_config_tab, text="Temperature:", font=("Microsoft YaHei", 12))
         temp_label.grid(row=4, column=0, padx=5, pady=5, sticky="e")
 
         def update_temp_label(value):
@@ -217,18 +236,8 @@ class NovelGeneratorGUI:
         )
         temp_scale.grid(row=4, column=1, padx=5, pady=5, sticky="we")
         
-        self.temp_value_label = ctk.CTkLabel(self.ai_config_tab, text=f"{self.temperature_var.get():.2f}")
+        self.temp_value_label = ctk.CTkLabel(self.ai_config_tab, text=f"{self.temperature_var.get():.2f}", font=("Microsoft YaHei", 12))
         self.temp_value_label.grid(row=4, column=2, padx=1, pady=1, sticky="w")
-
-        # 保存/加载配置按钮(与AI配置归一处)
-        config_frame = ctk.CTkFrame(self.ai_config_tab)
-        config_frame.grid(row=5, column=0, columnspan=3, sticky="nsew")
-
-        save_config_btn = ctk.CTkButton(config_frame, text="保存配置", command=self.save_config_btn)
-        save_config_btn.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
-
-        load_config_btn = ctk.CTkButton(config_frame, text="加载配置", command=self.load_config_btn)
-        load_config_btn.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
     def build_embeddings_config_tab(self):
         """
@@ -242,22 +251,22 @@ class NovelGeneratorGUI:
         self.embeddings_config_tab.grid_columnconfigure(1, weight=1)
 
         # 1. Embedding URL
-        embedding_url_label = ctk.CTkLabel(self.embeddings_config_tab, text="Embedding URL:")
+        embedding_url_label = ctk.CTkLabel(self.embeddings_config_tab, text="Embedding URL:", font=("Microsoft YaHei", 12))
         embedding_url_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        embedding_url_entry = ctk.CTkEntry(self.embeddings_config_tab, textvariable=self.embedding_url_var)
+        embedding_url_entry = ctk.CTkEntry(self.embeddings_config_tab, textvariable=self.embedding_url_var, font=("Microsoft YaHei", 12))
         embedding_url_entry.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
         # 2. Embedding 模型名称
-        emb_model_name_label = ctk.CTkLabel(self.embeddings_config_tab, text="Embedding Model Name:")
+        emb_model_name_label = ctk.CTkLabel(self.embeddings_config_tab, text="Embedding Model Name:", font=("Microsoft YaHei", 12))
         emb_model_name_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
-        emb_model_name_entry = ctk.CTkEntry(self.embeddings_config_tab, textvariable=self.embedding_model_name_var)
+        emb_model_name_entry = ctk.CTkEntry(self.embeddings_config_tab, textvariable=self.embedding_model_name_var, font=("Microsoft YaHei", 12))
         emb_model_name_entry.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
 
     def build_novel_params_area(self, start_row=2):
         """
         放置与小说本身相关的一些配置：主题、类型、章节数、文件路径等
+        只使用两列：0列放Label，1列放输入框(可能加子Frame)。
         """
-        # row = start_row
         # 主题(Topic)
         topic_label = ctk.CTkLabel(self.right_frame, text="主题(Topic):", font=("Microsoft YaHei", 12))
         topic_label.grid(row=start_row, column=0, padx=5, pady=5, sticky="e")
@@ -270,32 +279,37 @@ class NovelGeneratorGUI:
         genre_label = ctk.CTkLabel(self.right_frame, text="类型(Genre):", font=("Microsoft YaHei", 12))
         genre_label.grid(row=start_row+1, column=0, padx=5, pady=5, sticky="e")
         genre_entry = ctk.CTkEntry(self.right_frame, textvariable=self.genre_var, font=("Microsoft YaHei", 12))
-        genre_entry.grid(row=start_row+1, column=1, padx=5, pady=5, sticky="nsew")
+        genre_entry.grid(row=start_row+1, column=1, padx=5, pady=5, sticky="ew")
 
         # 章节数
         num_chapters_label = ctk.CTkLabel(self.right_frame, text="章节数:", font=("Microsoft YaHei", 12))
         num_chapters_label.grid(row=start_row+2, column=0, padx=5, pady=5, sticky="e")
-        num_chapters_entry = ctk.CTkEntry(self.right_frame, textvariable=self.num_chapters_var, width=80)
+        num_chapters_entry = ctk.CTkEntry(self.right_frame, textvariable=self.num_chapters_var, width=80, font=("Microsoft YaHei", 12))
         num_chapters_entry.grid(row=start_row+2, column=1, padx=5, pady=5, sticky="w")
 
         # 每章字数
         word_number_label = ctk.CTkLabel(self.right_frame, text="每章字数:", font=("Microsoft YaHei", 12))
         word_number_label.grid(row=start_row+3, column=0, padx=5, pady=5, sticky="e")
-        word_number_entry = ctk.CTkEntry(self.right_frame, textvariable=self.word_number_var, width=80)
+        word_number_entry = ctk.CTkEntry(self.right_frame, textvariable=self.word_number_var, width=80, font=("Microsoft YaHei", 12))
         word_number_entry.grid(row=start_row+3, column=1, padx=5, pady=5, sticky="w")
 
-        # 保存路径
+        # 保存路径 (使用子Frame放置 Entry + Button)
         filepath_label = ctk.CTkLabel(self.right_frame, text="保存路径:", font=("Microsoft YaHei", 12))
         filepath_label.grid(row=start_row+4, column=0, padx=5, pady=5, sticky="e")
-        filepath_entry = ctk.CTkEntry(self.right_frame, textvariable=self.filepath_var)
-        filepath_entry.grid(row=start_row+4, column=1, padx=5, pady=5, sticky="nsew")
-        browse_btn = ctk.CTkButton(self.right_frame, text="浏览...", command=self.browse_folder, width=60)
-        browse_btn.grid(row=start_row+4, column=2, padx=1, pady=1, sticky="w")
+        
+        self.filepath_frame = ctk.CTkFrame(self.right_frame)
+        self.filepath_frame.grid(row=start_row+4, column=1, padx=5, pady=5, sticky="nsew")
+        self.filepath_frame.columnconfigure(0, weight=1)
+
+        filepath_entry = ctk.CTkEntry(self.filepath_frame, textvariable=self.filepath_var, font=("Microsoft YaHei", 12))
+        filepath_entry.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+        browse_btn = ctk.CTkButton(self.filepath_frame, text="浏览...", command=self.browse_folder, width=60, font=("Microsoft YaHei", 12))
+        browse_btn.grid(row=0, column=1, padx=5, pady=5, sticky="e")
 
         # 章节号
         chapter_num_label = ctk.CTkLabel(self.right_frame, text="章节号:", font=("Microsoft YaHei", 12))
         chapter_num_label.grid(row=start_row+5, column=0, padx=5, pady=5, sticky="e")
-        chapter_num_entry = ctk.CTkEntry(self.right_frame, textvariable=self.chapter_num_var, width=80)
+        chapter_num_entry = ctk.CTkEntry(self.right_frame, textvariable=self.chapter_num_var, width=80, font=("Microsoft YaHei", 12))
         chapter_num_entry.grid(row=start_row+5, column=1, padx=5, pady=5, sticky="w")
 
         # 用户指导
@@ -306,46 +320,59 @@ class NovelGeneratorGUI:
 
     def build_main_buttons_area(self, start_row=10):
         """
-        主要功能按钮
+        主要功能按钮 + 配置保存/加载 按钮
         """
+        # 调整下布局：0,1列
+        # 这里按行摆放多个按钮
         self.right_frame.grid_rowconfigure(start_row, weight=0)
-        self.right_frame.grid_columnconfigure(0, weight=0)
-        self.right_frame.grid_columnconfigure(1, weight=0)
 
+        # 先放“保存配置”和“加载配置”按钮
+        self.btn_frame_config = ctk.CTkFrame(self.right_frame)
+        self.btn_frame_config.grid(row=start_row, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        self.btn_frame_config.columnconfigure(0, weight=1)
+        self.btn_frame_config.columnconfigure(1, weight=1)
+
+        save_config_btn = ctk.CTkButton(self.btn_frame_config, text="保存配置", command=self.save_config_btn, font=("Microsoft YaHei", 12))
+        save_config_btn.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+
+        load_config_btn = ctk.CTkButton(self.btn_frame_config, text="加载配置", command=self.load_config_btn, font=("Microsoft YaHei", 12))
+        load_config_btn.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+
+        # 下面是主要功能按钮
         self.btn_generate_full = ctk.CTkButton(
             self.right_frame, text="Step1. 生成设定 & 目录",
             command=self.generate_full_novel,
             font=("Microsoft YaHei", 12)
         )
-        self.btn_generate_full.grid(row=start_row, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        self.btn_generate_full.grid(row=start_row+1, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         self.btn_generate_chapter = ctk.CTkButton(
             self.right_frame, text="Step2. 生成章节草稿",
             command=self.generate_chapter_draft_ui,
             font=("Microsoft YaHei", 12)
         )
-        self.btn_generate_chapter.grid(row=start_row+1, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        self.btn_generate_chapter.grid(row=start_row+2, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         self.btn_finalize_chapter = ctk.CTkButton(
             self.right_frame, text="Step3. 定稿当前章节",
             command=self.finalize_chapter_ui,
             font=("Microsoft YaHei", 12)
         )
-        self.btn_finalize_chapter.grid(row=start_row+2, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        self.btn_finalize_chapter.grid(row=start_row+3, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         self.btn_check_consistency = ctk.CTkButton(
             self.right_frame, text="[可选]一致性审校",
             command=self.do_consistency_check,
             font=("Microsoft YaHei", 12)
         )
-        self.btn_check_consistency.grid(row=start_row+3, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        self.btn_check_consistency.grid(row=start_row+4, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         self.btn_import_knowledge = ctk.CTkButton(
             self.right_frame, text="[可选]导入知识库",
             command=self.import_knowledge_handler,
             font=("Microsoft YaHei", 12)
         )
-        self.btn_import_knowledge.grid(row=start_row+4, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        self.btn_import_knowledge.grid(row=start_row+5, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         self.btn_clear_vectorstore = ctk.CTkButton(
             self.right_frame, text="清空向量库",
@@ -353,14 +380,14 @@ class NovelGeneratorGUI:
             command=self.clear_vectorstore_handler,
             font=("Microsoft YaHei", 12)
         )
-        self.btn_clear_vectorstore.grid(row=start_row+5, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        self.btn_clear_vectorstore.grid(row=start_row+6, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         plot_arcs_btn = ctk.CTkButton(
             self.right_frame, text="[查看] 剧情要点",
             command=self.show_plot_arcs_ui,
             font=("Microsoft YaHei", 12)
         )
-        plot_arcs_btn.grid(row=start_row+6, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        plot_arcs_btn.grid(row=start_row+7, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
     # ------------------ Novel Settings Tab ------------------
     def build_setting_tab(self):
@@ -371,10 +398,10 @@ class NovelGeneratorGUI:
         self.setting_tab.rowconfigure(1, weight=1)
         self.setting_tab.columnconfigure(0, weight=1)
 
-        load_btn = ctk.CTkButton(self.setting_tab, text="加载 Novel_setting.txt", command=self.load_novel_setting)
+        load_btn = ctk.CTkButton(self.setting_tab, text="加载 Novel_setting.txt", command=self.load_novel_setting, font=("Microsoft YaHei", 12))
         load_btn.grid(row=0, column=0, padx=5, pady=5, sticky="w")
 
-        save_btn = ctk.CTkButton(self.setting_tab, text="保存修改", command=self.save_novel_setting)
+        save_btn = ctk.CTkButton(self.setting_tab, text="保存修改", command=self.save_novel_setting, font=("Microsoft YaHei", 12))
         save_btn.grid(row=0, column=0, padx=5, pady=5, sticky="e")
 
         self.setting_text = ctk.CTkTextbox(self.setting_tab, wrap="word", font=("Microsoft YaHei", 12))
@@ -412,10 +439,10 @@ class NovelGeneratorGUI:
         self.directory_tab.rowconfigure(1, weight=1)
         self.directory_tab.columnconfigure(0, weight=1)
 
-        load_btn = ctk.CTkButton(self.directory_tab, text="加载 Novel_directory.txt", command=self.load_novel_directory)
+        load_btn = ctk.CTkButton(self.directory_tab, text="加载 Novel_directory.txt", command=self.load_novel_directory, font=("Microsoft YaHei", 12))
         load_btn.grid(row=0, column=0, padx=5, pady=5, sticky="w")
 
-        save_btn = ctk.CTkButton(self.directory_tab, text="保存修改", command=self.save_novel_directory)
+        save_btn = ctk.CTkButton(self.directory_tab, text="保存修改", command=self.save_novel_directory, font=("Microsoft YaHei", 12))
         save_btn.grid(row=0, column=0, padx=5, pady=5, sticky="e")
 
         self.directory_text = ctk.CTkTextbox(self.directory_tab, wrap="word", font=("Microsoft YaHei", 12))
@@ -453,10 +480,10 @@ class NovelGeneratorGUI:
         self.character_tab.rowconfigure(1, weight=1)
         self.character_tab.columnconfigure(0, weight=1)
 
-        load_btn = ctk.CTkButton(self.character_tab, text="加载 character_state.txt", command=self.load_character_state)
+        load_btn = ctk.CTkButton(self.character_tab, text="加载 character_state.txt", command=self.load_character_state, font=("Microsoft YaHei", 12))
         load_btn.grid(row=0, column=0, padx=5, pady=5, sticky="w")
 
-        save_btn = ctk.CTkButton(self.character_tab, text="保存修改", command=self.save_character_state)
+        save_btn = ctk.CTkButton(self.character_tab, text="保存修改", command=self.save_character_state, font=("Microsoft YaHei", 12))
         save_btn.grid(row=0, column=0, padx=5, pady=5, sticky="e")
 
         self.character_text = ctk.CTkTextbox(self.character_tab, wrap="word", font=("Microsoft YaHei", 12))
@@ -494,10 +521,10 @@ class NovelGeneratorGUI:
         self.summary_tab.rowconfigure(1, weight=1)
         self.summary_tab.columnconfigure(0, weight=1)
 
-        load_btn = ctk.CTkButton(self.summary_tab, text="加载 global_summary.txt", command=self.load_global_summary)
+        load_btn = ctk.CTkButton(self.summary_tab, text="加载 global_summary.txt", command=self.load_global_summary, font=("Microsoft YaHei", 12))
         load_btn.grid(row=0, column=0, padx=5, pady=5, sticky="w")
 
-        save_btn = ctk.CTkButton(self.summary_tab, text="保存修改", command=self.save_global_summary)
+        save_btn = ctk.CTkButton(self.summary_tab, text="保存修改", command=self.save_global_summary, font=("Microsoft YaHei", 12))
         save_btn.grid(row=0, column=0, padx=5, pady=5, sticky="e")
 
         self.summary_text = ctk.CTkTextbox(self.summary_tab, wrap="word", font=("Microsoft YaHei", 12))
@@ -670,7 +697,7 @@ class NovelGeneratorGUI:
 
                 # 简易生成最近章节摘要（示例）
                 recent_chapters_summary = summarize_recent_chapters(
-                    None,  # 此处仅示例
+                    model_name,  # 此处仅示例
                     recent_3_texts
                 )
 
@@ -865,7 +892,7 @@ class NovelGeneratorGUI:
         top.title("剧情要点/未解决冲突")
         top.geometry("600x400")
 
-        text_area = ctk.CTkTextbox(top, wrap="word")
+        text_area = ctk.CTkTextbox(top, wrap="word", font=("Microsoft YaHei", 12))
         text_area.pack(fill="both", expand=True, padx=10, pady=10)
 
         text_area.insert("0.0", arcs_text)

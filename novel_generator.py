@@ -5,7 +5,7 @@ import logging
 import re
 from typing import Dict, List, Optional
 try:
-    from typing import TypedDict  # Python 3.8+ 直接可用；若是3.7可改用 typing_extensions
+    from typing import TypedDict
 except ImportError:
     from typing_extensions import TypedDict
 
@@ -33,7 +33,15 @@ from prompt_definitions import (
 from embedding_ollama import OllamaEmbeddings
 from chapter_directory_parser import get_chapter_info_from_directory
 
-# ============ 适配接口的判断函数 ============
+# ============ 日志配置 ============
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+def debug_log(prompt: str, response_content: str):
+        """打印Prompt与Response，可根据需要保留或去掉。"""
+        logging.info(f"\n[Prompt >>>] {prompt}\n")
+        logging.info(f"[Response >>>] {response_content}\n")
+
+# ============ 接口判断函数 ============
 def is_using_ollama_api(interface_format: str, base_url: str) -> bool:
     """
     当 interface_format == "Ollama" 时返回 True
@@ -60,13 +68,14 @@ def create_embeddings_object(
     """
     根据用户在UI中配置的参数，返回对应的 embeddings 对象。
     - 当 interface_format = "Ollama" => OllamaEmbeddings(...)
-    - 当 interface_format = "OpenAI" => OpenAIEmbeddings
-    - 当 interface_format = "ML Studio" => OpenAIEmbeddings
+    - 当 interface_format = "OpenAI" or "ML Studio" => OpenAIEmbeddings
+    - 其它情况可自行扩展
     """
     if is_using_ollama_api(interface_format, embed_url):
         # 使用 Ollama Embeddings
         return OllamaEmbeddings(model_name=embedding_model_name, base_url=embed_url)
     elif is_using_ml_studio_api(interface_format, base_url):
+        # 示例同用 OpenAIEmbeddings
         return OpenAIEmbeddings(openai_api_key=api_key, openai_api_base=base_url)
     else:
         # 默认使用 OpenAIEmbeddings
@@ -75,12 +84,7 @@ def create_embeddings_object(
 # ============ 日志配置 ============
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-def debug_log(prompt: str, response_content: str):
-    """在控制台打印或记录下每次Prompt与Response，[调试]"""
-    logging.info(f"\n[Prompt >>>] {prompt}\n")
-    logging.info(f"[Response >>>] {response_content}\n")
-
-# ============ 向量检索相关 ============
+# ============ 向量库相关 ============
 
 VECTOR_STORE_DIR = os.path.join(os.getcwd(), "vectorstore")
 if not os.path.exists(VECTOR_STORE_DIR):
@@ -106,20 +110,25 @@ def clear_vector_store():
         logging.info("No vector store found to clear.")
 
 def init_vector_store(
-        api_key: str,
-        base_url: str, 
-        interface_format: str,
-        embedding_model_name: str,
-        texts: List[str], 
-        embedding_base_url: str = ""
-    ) -> Chroma:
+    api_key: str,
+    base_url: str, 
+    interface_format: str,
+    embedding_model_name: str,
+    texts: List[str], 
+    embedding_base_url: str = ""
+) -> Chroma:
     """
     初始化并返回一个Chroma向量库，将传入的文本进行嵌入并保存到本地目录。
-    如果不存在该目录，会自动创建。
-    如果 embedding_base_url 不为空，则使用它做为embedding的base，否则默认base_url。
+    embedding_base_url 若不为空，则用于 Ollama 模式下；否则默认使用 base_url
     """
     embed_url = embedding_base_url if embedding_base_url else base_url
-    embeddings = create_embeddings_object(api_key, base_url, embed_url, interface_format, embedding_model_name)
+    embeddings = create_embeddings_object(
+        api_key=api_key,
+        base_url=base_url,
+        embed_url=embed_url,
+        interface_format=interface_format,
+        embedding_model_name=embedding_model_name
+    )
     documents = [Document(page_content=t) for t in texts]
     vectorstore = Chroma.from_documents(
         documents,
@@ -130,35 +139,55 @@ def init_vector_store(
     return vectorstore
 
 def load_vector_store(
-        api_key: str, 
-        base_url: str, 
-        interface_format: str,
-        embedding_model_name: str,
-        embedding_base_url: str = ""
-    ) -> Optional[Chroma]:
+    api_key: str,
+    base_url: str,
+    interface_format: str,
+    embedding_model_name: str,
+    embedding_base_url: str = ""
+) -> Optional[Chroma]:
     """
     读取已存在的向量库。若不存在则返回 None。
-    同样支持可选的 embedding_base_url。
     """
     if not os.path.exists(VECTOR_STORE_DIR):
         return None
     embed_url = embedding_base_url if embedding_base_url else base_url
-    embeddings = create_embeddings_object(api_key, base_url, embed_url, interface_format, embedding_model_name)
+    embeddings = create_embeddings_object(
+        api_key=api_key,
+        base_url=base_url,
+        embed_url=embed_url,
+        interface_format=interface_format,
+        embedding_model_name=embedding_model_name
+    )
     return Chroma(persist_directory=VECTOR_STORE_DIR, embedding_function=embeddings)
 
 def update_vector_store(
-        api_key: str, 
-        base_url: str, 
-        new_chapter: str, 
-        interface_format: str,
-        embedding_model_name: str,
-        embedding_base_url: str = ""
-    ) -> None:
-    """将最新章节文本插入到向量库里，用于后续检索参考。若库不存在则初始化。"""
-    store = load_vector_store(api_key, base_url,interface_format, embedding_model_name, embedding_base_url)
+    api_key: str, 
+    base_url: str, 
+    new_chapter: str, 
+    interface_format: str = "OpenAI",
+    embedding_model_name: str = "",
+    embedding_base_url: str = ""
+) -> None:
+    """
+    将最新章节文本插入到向量库里，用于后续检索参考。若库不存在则初始化。
+    """
+    store = load_vector_store(
+        api_key=api_key,
+        base_url=base_url,
+        interface_format=interface_format,
+        embedding_model_name=embedding_model_name,
+        embedding_base_url=embedding_base_url
+    )
     if not store:
         logging.info("Vector store does not exist. Initializing a new one...")
-        init_vector_store(api_key, base_url,interface_format, embedding_model_name, [new_chapter], embedding_base_url)
+        init_vector_store(
+            api_key=api_key,
+            base_url=base_url,
+            interface_format=interface_format,
+            embedding_model_name=embedding_model_name,
+            texts=[new_chapter],
+            embedding_base_url=embedding_base_url
+        )
         return
 
     new_doc = Document(page_content=new_chapter)
@@ -166,25 +195,32 @@ def update_vector_store(
     store.persist()
 
 def get_relevant_context_from_vector_store(
-        api_key: str, 
-        base_url: str, 
-        interface_format: str,
-        embedding_model_name: str,
-        query: str, 
-        k: int = 2, 
-        embedding_base_url: str = ""
-    ) -> str:
+    api_key: str,
+    base_url: str,
+    query: str,
+    interface_format: str = "OpenAI",
+    embedding_model_name: str = "",
+    embedding_base_url: str = "",
+    k: int = 2
+) -> str:
     """
     从向量库中检索与 query 最相关的 k 条文本，拼接后返回。
     若向量库不存在则返回空字符串。
     """
-    store = load_vector_store(api_key, base_url,interface_format, embedding_model_name, embedding_base_url)
+    store = load_vector_store(
+        api_key=api_key,
+        base_url=base_url,
+        interface_format=interface_format,
+        embedding_model_name=embedding_model_name,
+        embedding_base_url=embedding_base_url
+    )
     if not store:
         logging.warning("Vector store not found. Returning empty context.")
         return ""
     docs = store.similarity_search(query, k=k)
     combined = "\n".join([d.page_content for d in docs])
     return combined
+
 
 # ============ 多步生成：设置 & 目录 ============
 
@@ -324,7 +360,6 @@ def Novel_novel_directory_generate(
     filename_set = os.path.join(filepath, "Novel_setting.txt")
     filename_novel_directory = os.path.join(filepath, "Novel_directory.txt")
 
-    # 清理文本（可根据需要去除多余字符）
     def clean_text(txt: str) -> str:
         return txt.replace('#', '').replace('*', '')
 
@@ -335,6 +370,7 @@ def Novel_novel_directory_generate(
     append_text_to_file(final_novel_directory_cleaned, filename_novel_directory)
 
     logging.info("Novel settings and directory generated successfully.")
+
 
 # ============ 获取最近N章内容，生成短期摘要 ============
 
@@ -356,17 +392,37 @@ def get_last_n_chapters_text(chapters_dir: str, current_chapter_num: int, n: int
 def summarize_recent_chapters(model, chapters_text_list: List[str]) -> str:
     """
     将最近几章的文本拼接后，通过模型生成一个相对详细的“短期内容摘要”。
-    这里仅作示例，实际可传入 ChatOpenAI 或其他模型对象，以获取真实摘要。
+    如果没有可用的模型（model=None），则退化为简单截断示例。
     """
     if not chapters_text_list:
         return ""
 
-    # 模拟返回合并摘要，这里不做真实OpenAI调用
     combined_text = "\n".join(chapters_text_list)
-    # 简单演示：直接返回合并后的文本，或你自己实现真正的摘要逻辑
-    return f"【摘要】最近几章内容:\n{combined_text[:800]}..."  # 截断示例
+    # 如果未传入model，就做个简单的退化输出
+    if not model:
+        return f"【摘要-演示】\n{combined_text[:800]}..."
 
-# ============ 新增1：记录剧情要点/未解决冲突 ============
+    # 构造一个提示词（Prompt），指示模型生成精简摘要
+    prompt = f"""你是一名资深的长篇小说写作辅助AI。下面是最近几章的合并文本内容：
+{combined_text}
+
+请你为此文本生成一段简洁扼要的摘要，突出主要剧情进展、角色变化、冲突焦点等要点。
+1.请用中文输出，不超过500字。
+2.仅回复摘要内容，不需要其他信息。
+"""
+
+    # 调用模型获取摘要
+    response = model.invoke(prompt)
+    if not response or not response.content.strip():
+        # 若模型无响应或空，返回简单截断
+        return f"【摘要-演示】\n{combined_text[:800]}..."
+
+    # 返回模型生成的摘要文本
+    return response.content.strip()
+
+
+
+# ============ 新增：更新剧情要点/未解决冲突 ============
 
 PLOT_ARCS_PROMPT = """\
 下面是新生成的章节内容:
@@ -409,6 +465,7 @@ def update_plot_arcs(
     debug_log(prompt, response.content)
     return response.content.strip()
 
+
 # ============ 生成章节草稿 & 定稿 ============
 
 def generate_chapter_draft(
@@ -436,13 +493,17 @@ def generate_chapter_draft(
     chapter_title = chapter_info["chapter_title"]
     chapter_brief = chapter_info["chapter_brief"]
 
-    # 1) 从向量库检索往期上下文
-    # 在此示例中，如需独立的embedding url，可自行扩展
+    # 1) 从向量库检索上下文 (此处仅演示 query="回顾剧情")
     relevant_context = get_relevant_context_from_vector_store(
-        api_key, base_url, "回顾剧情", k=2
+        api_key=api_key,
+        base_url=base_url,
+        query="回顾剧情",
+        interface_format="OpenAI",  # 若需根据 UI 选择可再传参
+        embedding_model_name="",     # 同上
+        embedding_base_url="",
+        k=2
     )
 
-    # 2) 生成大纲
     model = ChatOpenAI(
         model=model_name,
         api_key=api_key,
@@ -450,6 +511,7 @@ def generate_chapter_draft(
         temperature=temperature
     )
 
+    # 2) 生成大纲
     outline_prompt_text = chapter_outline_prompt.format(
         novel_setting=novel_settings,
         character_state=character_state + "\n\n【历史上下文】\n" + relevant_context,
@@ -458,18 +520,11 @@ def generate_chapter_draft(
         chapter_title=chapter_title,
         chapter_brief=chapter_brief
     )
-
-    outline_prompt_text += f"\n\n【本章目录标题与简述】\n标题：{chapter_title}\n简述：{chapter_brief}\n"
-    outline_prompt_text += f"\n【最近几章摘要】\n{recent_chapters_summary}"
+    outline_prompt_text += f"\n\n【最近几章摘要】\n{recent_chapters_summary}"
     outline_prompt_text += f"\n\n【用户指导】\n{user_guidance if user_guidance else '（无）'}"
 
     response_outline = model.invoke(outline_prompt_text)
-    if not response_outline:
-        logging.warning("generate_chapter_draft: outline no response.")
-        chapter_outline = ""
-    else:
-        debug_log(outline_prompt_text, response_outline.content)
-        chapter_outline = response_outline.content.strip()
+    chapter_outline = response_outline.content.strip() if response_outline else ""
 
     outlines_dir = os.path.join(filepath, "outlines")
     os.makedirs(outlines_dir, exist_ok=True)
@@ -487,18 +542,11 @@ def generate_chapter_draft(
         chapter_title=chapter_title,
         chapter_brief=chapter_brief
     )
-
-    writing_prompt_text += f"\n\n【本章目录标题与简述】\n标题：{chapter_title}\n简述：{chapter_brief}\n"
-    writing_prompt_text += f"\n【最近几章摘要】\n{recent_chapters_summary}"
+    writing_prompt_text += f"\n\n【最近几章摘要】\n{recent_chapters_summary}"
     writing_prompt_text += f"\n\n【用户指导】\n{user_guidance if user_guidance else '（无）'}"
 
     response_chapter = model.invoke(writing_prompt_text)
-    if not response_chapter:
-        logging.warning("generate_chapter_draft: writing no response.")
-        chapter_content = ""
-    else:
-        debug_log(writing_prompt_text, response_chapter.content)
-        chapter_content = response_chapter.content.strip()
+    chapter_content = response_chapter.content.strip() if response_chapter else ""
 
     chapters_dir = os.path.join(filepath, "chapters")
     os.makedirs(chapters_dir, exist_ok=True)
@@ -534,16 +582,15 @@ def finalize_chapter(
         logging.warning(f"Chapter {novel_number} is empty, cannot finalize.")
         return
 
-    # 读取角色状态 & 全局摘要 & 剧情要点
     character_state_file = os.path.join(filepath, "character_state.txt")
     global_summary_file = os.path.join(filepath, "global_summary.txt")
-    plot_arcs_file = os.path.join(filepath, "plot_arcs.txt")  # 新增文件
+    plot_arcs_file = os.path.join(filepath, "plot_arcs.txt")
 
     old_char_state = read_file(character_state_file)
     old_global_summary = read_file(global_summary_file)
     old_plot_arcs = read_file(plot_arcs_file)
 
-    # 1) 先检查字数是否过少，若少于 80% 则调用 enrich 逻辑
+    # 1) 若字数明显不足，做 enrich
     if len(chapter_text) < 0.8 * word_number:
         logging.info("Chapter text seems shorter than 80% of desired length. Attempting to enrich content...")
         chapter_text = enrich_chapter_text(
@@ -554,7 +601,6 @@ def finalize_chapter(
             model_name=model_name,
             temperature=temperature
         )
-        # 覆盖写回文件
         clear_file_content(chapter_file)
         save_string_to_txt(chapter_text, chapter_file)
         logging.info("Chapter text has been enriched and updated.")
@@ -573,11 +619,7 @@ def finalize_chapter(
             global_summary=old_summary
         )
         response = model.invoke(prompt)
-        if not response:
-            logging.warning("update_global_summary: No response.")
-            return old_summary
-        debug_log(prompt, response.content)
-        return response.content.strip()
+        return response.content.strip() if response else old_summary
 
     new_global_summary = update_global_summary(chapter_text, old_global_summary)
 
@@ -588,15 +630,11 @@ def finalize_chapter(
             old_state=old_state
         )
         response = model.invoke(prompt)
-        if not response:
-            logging.warning("update_character_state: No response.")
-            return old_state
-        debug_log(prompt, response.content)
-        return response.content.strip()
+        return response.content.strip() if response else old_state
 
     new_char_state = update_character_state(chapter_text, old_char_state)
 
-    # ============ 新增2: 更新剧情要点 =============
+    # 4) 更新剧情要点
     new_plot_arcs = update_plot_arcs(
         chapter_text=chapter_text,
         old_plot_arcs=old_plot_arcs,
@@ -606,7 +644,7 @@ def finalize_chapter(
         temperature=temperature
     )
 
-    # 4) 覆盖写入角色状态文件、全局摘要文件、剧情要点文件
+    # 5) 覆盖写入文件
     clear_file_content(character_state_file)
     save_string_to_txt(new_char_state, character_state_file)
 
@@ -616,10 +654,16 @@ def finalize_chapter(
     clear_file_content(plot_arcs_file)
     save_string_to_txt(new_plot_arcs, plot_arcs_file)
 
-    # 5) 更新向量检索库
-    update_vector_store(api_key, base_url, chapter_text)
+    # 6) 更新向量库
+    update_vector_store(
+        api_key=api_key, 
+        base_url=base_url, 
+        new_chapter=chapter_text,
+        interface_format="OpenAI", 
+        embedding_model_name=""
+    )
 
-    logging.info(f"Chapter {novel_number} has been finalized (summary & state updated, plot arcs updated, vector store updated).")
+    logging.info(f"Chapter {novel_number} has been finalized.")
 
 def enrich_chapter_text(
     chapter_text: str,
@@ -639,17 +683,14 @@ def enrich_chapter_text(
         base_url=base_url,
         temperature=temperature
     )
-    prompt = f"""\
-以下是当前章节文本，可能篇幅较短，请在保持剧情连贯的前提下进行扩写，使其更充实、生动，并尽量靠近目标 {word_number} 字数。
+    prompt = f"""以下是当前章节文本，可能篇幅较短，请在保持剧情连贯的前提下进行扩写，使其更充实、生动，并尽量靠近目标 {word_number} 字数。
 
 原章节内容：
-{chapter_text}
-"""
+{chapter_text}"""
+
     response = model.invoke(prompt)
     if not response:
-        logging.warning("enrich_chapter_text: No response.")
-        return chapter_text  # 无响应时就返回原文
-    debug_log(prompt, response.content)
+        return chapter_text
     return response.content.strip()
 
 # ============ 导入外部知识文本 ============
