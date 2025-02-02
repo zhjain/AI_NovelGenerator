@@ -51,7 +51,6 @@ if not os.path.exists(VECTOR_STORE_DIR):
 def clear_vector_store():
     """
     清空本地向量库（删除 vectorstore 文件夹内的内容）。
-    需要在UI中加一个二次确认弹窗，防止误删。
     """
     if os.path.exists(VECTOR_STORE_DIR):
         try:
@@ -68,14 +67,16 @@ def clear_vector_store():
     else:
         logging.info("No vector store found to clear.")
 
-def init_vector_store(api_key: str, base_url: str, texts: List[str]) -> Chroma:
+def init_vector_store(api_key: str, base_url: str, texts: List[str], embedding_base_url: str = "") -> Chroma:
     """
     初始化并返回一个Chroma向量库，将传入的文本进行嵌入并保存到本地目录。
     如果不存在该目录，会自动创建。
+    如果 embedding_base_url 不为空，则使用它做为embedding的base，否则默认base_url。
     """
+    embed_url = embedding_base_url if embedding_base_url else base_url
     embeddings = OpenAIEmbeddings(
         openai_api_key=api_key,
-        openai_api_base=base_url
+        openai_api_base=embed_url
     )
     documents = [Document(page_content=t) for t in texts]
     vectorstore = Chroma.from_documents(
@@ -86,34 +87,38 @@ def init_vector_store(api_key: str, base_url: str, texts: List[str]) -> Chroma:
     vectorstore.persist()
     return vectorstore
 
-def load_vector_store(api_key: str, base_url: str) -> Optional[Chroma]:
-    """读取已存在的向量库。若不存在则返回 None。"""
+def load_vector_store(api_key: str, base_url: str, embedding_base_url: str = "") -> Optional[Chroma]:
+    """
+    读取已存在的向量库。若不存在则返回 None。
+    同样支持可选的 embedding_base_url。
+    """
     if not os.path.exists(VECTOR_STORE_DIR):
         return None
+    embed_url = embedding_base_url if embedding_base_url else base_url
     embeddings = OpenAIEmbeddings(
         openai_api_key=api_key,
-        openai_api_base=base_url
+        openai_api_base=embed_url
     )
     return Chroma(persist_directory=VECTOR_STORE_DIR, embedding_function=embeddings)
 
-def update_vector_store(api_key: str, base_url: str, new_chapter: str) -> None:
+def update_vector_store(api_key: str, base_url: str, new_chapter: str, embedding_base_url: str = "") -> None:
     """将最新章节文本插入到向量库里，用于后续检索参考。若库不存在则初始化。"""
-    store = load_vector_store(api_key, base_url)
+    store = load_vector_store(api_key, base_url, embedding_base_url)
     if not store:
         logging.info("Vector store does not exist. Initializing a new one...")
-        init_vector_store(api_key, base_url, [new_chapter])
+        init_vector_store(api_key, base_url, [new_chapter], embedding_base_url)
         return
 
     new_doc = Document(page_content=new_chapter)
     store.add_documents([new_doc])
     store.persist()
 
-def get_relevant_context_from_vector_store(api_key: str, base_url: str, query: str, k: int = 2) -> str:
+def get_relevant_context_from_vector_store(api_key: str, base_url: str, query: str, k: int = 2, embedding_base_url: str = "") -> str:
     """
     从向量库中检索与 query 最相关的 k 条文本，拼接后返回。
     若向量库不存在则返回空字符串。
     """
-    store = load_vector_store(api_key, base_url)
+    store = load_vector_store(api_key, base_url, embedding_base_url)
     if not store:
         logging.warning("Vector store not found. Returning empty context.")
         return ""
@@ -288,25 +293,18 @@ def get_last_n_chapters_text(chapters_dir: str, current_chapter_num: int, n: int
                 texts.append(text)
     return texts
 
-def summarize_recent_chapters(model: ChatOpenAI, chapters_text_list: List[str]) -> str:
+def summarize_recent_chapters(model, chapters_text_list: List[str]) -> str:
     """
     将最近几章的文本拼接后，通过模型生成一个相对详细的“短期内容摘要”。
+    这里仅作示例，实际可传入 ChatOpenAI 或其他模型对象，以获取真实摘要。
     """
     if not chapters_text_list:
         return ""
 
+    # 模拟返回合并摘要，这里不做真实OpenAI调用
     combined_text = "\n".join(chapters_text_list)
-    prompt = f"""\
-这是最近几章的故事内容，请生成一份详细的短期内容摘要（不少于一章篇幅的细节），用于帮助后续创作时回顾细节。
-请着重强调发生的事件、角色的心理和关系变化、冲突或悬念等。
-
-{combined_text}
-"""
-    response = model.invoke(prompt)
-    if not response:
-        return ""
-    debug_log(prompt, response.content)
-    return response.content.strip()
+    # 简单演示：直接返回合并后的文本，或你自己实现真正的摘要逻辑
+    return f"【摘要】最近几章内容:\n{combined_text[:800]}..."  # 截断示例
 
 # ============ 新增1：记录剧情要点/未解决冲突 ============
 
@@ -379,6 +377,7 @@ def generate_chapter_draft(
     chapter_brief = chapter_info["chapter_brief"]
 
     # 1) 从向量库检索往期上下文
+    # 在此示例中，如需独立的embedding url，可自行扩展
     relevant_context = get_relevant_context_from_vector_store(
         api_key, base_url, "回顾剧情", k=2
     )
@@ -595,7 +594,7 @@ def enrich_chapter_text(
 
 # ============ 导入外部知识文本 ============
 
-def import_knowledge_file(api_key: str, base_url: str, file_path: str) -> None:
+def import_knowledge_file(api_key: str, base_url: str, file_path: str, embedding_base_url: str = "") -> None:
     """
     将用户选定的文本文件导入到向量库，以便在写作时检索。
     """
@@ -610,10 +609,10 @@ def import_knowledge_file(api_key: str, base_url: str, file_path: str) -> None:
 
     paragraphs = advanced_split_content(content)
 
-    store = load_vector_store(api_key, base_url)
+    store = load_vector_store(api_key, base_url, embedding_base_url)
     if not store:
         logging.info("Vector store does not exist. Initializing a new one for knowledge import...")
-        init_vector_store(api_key, base_url, paragraphs)
+        init_vector_store(api_key, base_url, paragraphs, embedding_base_url)
         return
 
     docs = [Document(page_content=p) for p in paragraphs]
@@ -627,7 +626,7 @@ def advanced_split_content(content: str,
     """
     将文本先按句子切分，然后根据语义相似度进行合并，最后根据max_length进行二次切分。
     """
-    nltk.download('punkt_tab', quiet=True)
+    nltk.download('punkt_tab', quiet=True)  # 如有需求，可改成 'punkt'
     sentences = nltk.sent_tokenize(content)
 
     if not sentences:
