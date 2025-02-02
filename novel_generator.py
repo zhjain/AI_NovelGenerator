@@ -718,8 +718,8 @@ def import_knowledge_file(
         logging.warning("知识库文件内容为空。")
         return
 
-    # 改为下载 punkt_tab
     nltk.download('punkt', quiet=True)
+    nltk.download('punkt_tab', quiet=True)
 
     paragraphs = advanced_split_content(content)
 
