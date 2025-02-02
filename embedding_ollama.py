@@ -6,8 +6,9 @@ from typing import List
 class OllamaEmbeddings:
     """
     Ollama 本地服务提供的 Embedding 接口，
-    最终拼出形如: http://localhost:11434/api/embed
-    即 base_url + "/embed"
+    最终拼出形如: http://localhost:11434/api/embeddings
+    即 base_url + "/embeddings"
+    但是按文档，好像/embeddings接口已经被废弃了，现在是/embed才对，实际测试都可以用，视情况而定
     """
 
     def __init__(self, model_name: str, base_url: str):
@@ -39,7 +40,7 @@ class OllamaEmbeddings:
         """
         调用 Ollama 本地服务接口，获取文本的 embedding。
         """
-        url = f"{self.base_url}/embed"
+        url = f"{self.base_url}/embeddings"
         data = {
             "model": self.model_name,
             "prompt": text
