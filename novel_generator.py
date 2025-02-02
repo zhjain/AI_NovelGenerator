@@ -29,12 +29,11 @@ from embedding_ollama import OllamaEmbeddings
 from chapter_directory_parser import get_chapter_info_from_directory
 
 # ============ 日志配置 ============
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 def debug_log(prompt: str, response_content: str):
-        logging.info(f"\n[Prompt >>>] {prompt}\n")
-        logging.info(f"[Response >>>] {response_content}\n")
+    logging.info(f"\n[Prompt >>>] {prompt}\n")
+    logging.info(f"[Response >>>] {response_content}\n")
 
 # ============ 判断接口格式相关 ============
 
@@ -54,7 +53,6 @@ def is_using_ml_studio_api(interface_format: str, base_url: str) -> bool:
         return True
     return False
 
-
 # ============ 创建 Embeddings 对象 ============
 
 def create_embeddings_object(
@@ -67,24 +65,22 @@ def create_embeddings_object(
     """
     根据用户在UI中配置的参数，返回对应的 embeddings 对象。
     - 当 interface_format = "Ollama" => OllamaEmbeddings(...)
-      （此时把 embed_url 中的 /v1 替换成 /api，以便最后调用 /api/embed）
-    - 当 interface_format = "OpenAI" or "ML Studio" => OpenAIEmbeddings
-    - 其它情况视需求可扩展
+    - 当 interface_format = "OpenAI"/"ML Studio" => OpenAIEmbeddings(...)
+    - 其它情况可扩展
     """
     if is_using_ollama_api(interface_format, embed_url):
         fixed_url = embed_url.rstrip("/")
+        # Ollama embedding接口通常是 /api/embed
         fixed_url = fixed_url.replace("/v1", "/api")
         return OllamaEmbeddings(
             model_name=embedding_model_name,
             base_url=fixed_url
         )
     elif is_using_ml_studio_api(interface_format, base_url):
-        # ML Studio / OpenAI 兼容
         return OpenAIEmbeddings(openai_api_key=api_key, openai_api_base=base_url)
     else:
         # 默认使用 OpenAIEmbeddings
         return OpenAIEmbeddings(openai_api_key=api_key, openai_api_base=base_url)
-
 
 # ============ 向量库相关 ============
 
@@ -225,16 +221,13 @@ def get_relevant_context_from_vector_store(
         logging.info("No vector store found. Returning empty context.")
         return ""
     
-    # 向量库存在，但没有足够的内容时也避免索引错误
     docs = store.similarity_search(query, k=k)
-    
     if not docs:
         logging.info(f"No relevant documents found for query '{query}'. Returning empty context.")
         return ""
 
     combined = "\n".join([d.page_content for d in docs])
     return combined
-
 
 # ============ 多步生成：设置 & 目录 ============
 
@@ -308,7 +301,7 @@ def Novel_novel_directory_generate(
         debug_log(prompt, response.content)
         return {"dark_lines": response.content.strip()}
 
-    def finalize_novel_setting(state: OverallState) -> Dict[str, str]:
+    def finalize_novel_setting_func(state: OverallState) -> Dict[str, str]:
         prompt = finalize_setting_prompt.format(
             novel_setting_base=state["novel_setting_base"],
             character_setting=state["character_setting"],
@@ -321,7 +314,7 @@ def Novel_novel_directory_generate(
         debug_log(prompt, response.content)
         return {"final_novel_setting": response.content.strip()}
 
-    def generate_novel_directory(state: OverallState) -> Dict[str, str]:
+    def generate_novel_directory_func(state: OverallState) -> Dict[str, str]:
         prompt = novel_directory_prompt.format(
             final_novel_setting=state["final_novel_setting"],
             number_of_chapters=state["number_of_chapters"]
@@ -337,8 +330,8 @@ def Novel_novel_directory_generate(
     graph.add_node("generate_base_setting", generate_base_setting)
     graph.add_node("generate_character_setting", generate_character_setting)
     graph.add_node("generate_dark_lines", generate_dark_lines)
-    graph.add_node("finalize_novel_setting", finalize_novel_setting)
-    graph.add_node("generate_novel_directory", generate_novel_directory)
+    graph.add_node("finalize_novel_setting", finalize_novel_setting_func)
+    graph.add_node("generate_novel_directory", generate_novel_directory_func)
 
     graph.add_edge(START, "generate_base_setting")
     graph.add_edge("generate_base_setting", "generate_character_setting")
@@ -377,10 +370,14 @@ def Novel_novel_directory_generate(
     final_novel_setting_cleaned = clean_text(final_novel_setting)
     final_novel_directory_cleaned = clean_text(final_novel_directory)
 
-    append_text_to_file(final_novel_setting_cleaned, filename_set)
-    append_text_to_file(final_novel_directory_cleaned, filename_novel_directory)
-    logging.info("Novel settings and directory generated successfully.")
+    # 改进：写文件时先清空再写入
+    clear_file_content(filename_set)
+    save_string_to_txt(final_novel_setting_cleaned, filename_set)
 
+    clear_file_content(filename_novel_directory)
+    save_string_to_txt(final_novel_directory_cleaned, filename_novel_directory)
+
+    logging.info("Novel settings and directory generated successfully.")
 
 # ============ 获取最近N章内容，生成短期摘要 ============
 
@@ -401,7 +398,6 @@ def get_last_n_chapters_text(chapters_dir: str, current_chapter_num: int, n: int
         texts = [''] * (n - len(texts)) + texts
     return texts
 
-
 def summarize_recent_chapters(
     llm_model: str,
     api_key: str,
@@ -414,8 +410,10 @@ def summarize_recent_chapters(
     """
     if not chapters_text_list:
         return ""
-    if chapters_text_list==['', '', '']:
+    # 如果列表里全是空，则无法生成摘要
+    if all(not txt.strip() for txt in chapters_text_list):
         return "暂无摘要。"
+
     model = ChatOpenAI(
         model=llm_model,
         api_key=api_key,
@@ -431,9 +429,9 @@ def summarize_recent_chapters(
 
     response = model.invoke(prompt)
     if not response or not response.content.strip():
+        # 若模型无响应，就截取一段作为“备选”
         return combined_text[:800] + "..." if len(combined_text) > 800 else combined_text
     return response.content.strip()
-
 
 # ============ 新增：剧情要点/未解决冲突 ============
 
@@ -473,7 +471,6 @@ def update_plot_arcs(
         return old_plot_arcs
     return response.content.strip()
 
-
 # ============ 生成章节草稿 & 定稿 ============
 
 def generate_chapter_draft(
@@ -502,13 +499,12 @@ def generate_chapter_draft(
     chapter_title = chapter_info["chapter_title"]
     chapter_brief = chapter_info["chapter_brief"]
 
-    # 从向量库检索多次上下文（示例：对本章简介、用户指导分别做查询，再合并）
+    # 从向量库检索上下文
     queries = []
     if user_guidance.strip():
         queries.append(user_guidance)
     if chapter_brief.strip():
         queries.append(chapter_brief)
-    # 也可加一句“回顾剧情”之类
     queries.append("回顾剧情")
 
     relevant_context = ""
@@ -524,7 +520,6 @@ def generate_chapter_draft(
         )
         if partial_context.strip():
             relevant_context += "\n" + partial_context
-    # 如果检索结果为空，使用默认值（如空字符串）
     if not relevant_context:
         relevant_context = "暂无相关内容。"
 
@@ -716,7 +711,6 @@ def enrich_chapter_text(
         return chapter_text
     return response.content.strip()
 
-
 # ============ 导入外部知识文本 ============
 
 def import_knowledge_file(
@@ -739,6 +733,8 @@ def import_knowledge_file(
     if not content.strip():
         logging.warning("知识库文件内容为空。")
         return
+
+    nltk.download('punkt_tab', quiet=True)
 
     paragraphs = advanced_split_content(content)
 
@@ -765,10 +761,8 @@ def advanced_split_content(content: str,
                            max_length: int = 500) -> List[str]:
     """
     将文本先按句子切分，然后根据语义相似度进行合并，最后按max_length二次切分。
+    可根据需要微调此逻辑。
     """
-    # 纠正下载punkt包：'punkt' 而非 'punkt_tab'
-    nltk.download('punkt', quiet=True)
-
     sentences = nltk.sent_tokenize(content)
     if not sentences:
         return []

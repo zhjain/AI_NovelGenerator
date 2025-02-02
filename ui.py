@@ -8,7 +8,7 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import traceback
 from config_manager import load_config, save_config
-from utils import read_file, save_string_to_txt
+from utils import read_file, save_string_to_txt, clear_file_content
 from novel_generator import (
     Novel_novel_directory_generate,
     generate_chapter_draft,
@@ -34,7 +34,14 @@ class NovelGeneratorGUI:
     def __init__(self, master):
         self.master = master
         self.master.title("Novel Generator GUI (CustomTkinter)")
-        self.master.iconbitmap("icon.ico")
+
+        # 防止因 icon.ico 不存在导致程序崩溃
+        try:
+            if os.path.exists("icon.ico"):
+                self.master.iconbitmap("icon.ico")
+        except Exception:
+            pass
+
         # 窗口最大化
         self.master.state("zoomed")
         # 配置窗口大小
@@ -90,9 +97,6 @@ class NovelGeneratorGUI:
 
     # ------------------ 主功能 Tab ------------------
     def build_main_tab(self):
-        """
-        主Tab: 左侧显示章节草稿/日志, 右侧是功能区 & 配置区
-        """
         self.main_tab.rowconfigure(0, weight=1)
         self.main_tab.columnconfigure(0, weight=1)
         self.main_tab.columnconfigure(1, weight=0)
@@ -100,6 +104,7 @@ class NovelGeneratorGUI:
         # 左侧Frame
         self.left_frame = ctk.CTkFrame(self.main_tab)
         self.left_frame.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+
         # 右侧Frame
         self.right_frame = ctk.CTkFrame(self.main_tab)
         self.right_frame.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
@@ -110,11 +115,6 @@ class NovelGeneratorGUI:
         self.build_right_layout()
 
     def build_left_layout(self):
-        """
-        左侧包含两个区域：
-        1. 本章草稿内容（可编辑）
-        2. 输出日志（只读）
-        """
         self.left_frame.grid_rowconfigure(0, weight=3)
         self.left_frame.grid_rowconfigure(1, weight=1)
         self.left_frame.grid_columnconfigure(0, weight=1)
@@ -137,16 +137,11 @@ class NovelGeneratorGUI:
         self.log_text.configure(state="disabled")
 
     def build_right_layout(self):
-        """
-        右侧用于显示配置与功能按钮。
-        其中配置被拆分到一个子 TabView：AI接口配置 和 Embedding配置。
-        下面再放与小说相关的输入(主题/类型/章节数等)与功能按钮。
-        """
         self.right_frame.grid_rowconfigure(0, weight=0)
         self.right_frame.grid_rowconfigure(1, weight=0)
         self.right_frame.grid_rowconfigure(2, weight=1)
-        self.right_frame.grid_columnconfigure(0, weight=0)
-        self.right_frame.grid_columnconfigure(1, weight=1)
+        self.right_frame.columnconfigure(0, weight=0)
+        self.right_frame.columnconfigure(1, weight=1)
 
         # ========== 1. 配置项 TabView（AI接口配置 & Embedding配置） ==========
         self.config_tabview = ctk.CTkTabview(self.right_frame)
@@ -166,19 +161,6 @@ class NovelGeneratorGUI:
         self.build_main_buttons_area(start_row=10)
 
     def build_ai_config_tab(self):
-        """
-        在 AI接口配置 子Tab 上放置：
-        - API Key
-        - Base URL
-        - 接口格式
-        - 模型名称
-        - Temperature
-        """
-        for i in range(5):
-            self.ai_config_tab.grid_rowconfigure(i, weight=0)
-        self.ai_config_tab.grid_columnconfigure(0, weight=0)
-        self.ai_config_tab.grid_columnconfigure(1, weight=1)
-
         def on_interface_format_changed(new_value):
             # 如果用户切换接口格式，可根据需要修改BaseURL为默认值
             if new_value == "Ollama":
@@ -187,6 +169,11 @@ class NovelGeneratorGUI:
                 self.base_url_var.set("http://localhost:1234/v1")
             elif new_value == "OpenAI":
                 self.base_url_var.set("https://api.agicto.cn/v1")
+
+        for i in range(5):
+            self.ai_config_tab.grid_rowconfigure(i, weight=0)
+        self.ai_config_tab.grid_columnconfigure(0, weight=0)
+        self.ai_config_tab.grid_columnconfigure(1, weight=1)
 
         # 1. API Key
         api_key_label = ctk.CTkLabel(self.ai_config_tab, text="API Key:", font=("Microsoft YaHei", 12))
@@ -239,11 +226,6 @@ class NovelGeneratorGUI:
         self.temp_value_label.grid(row=4, column=2, padx=1, pady=1, sticky="w")
 
     def build_embeddings_config_tab(self):
-        """
-        在 Embedding配置 子Tab 上放置：
-        - Embedding URL
-        - Embedding 模型名称
-        """
         for i in range(2):
             self.embeddings_config_tab.grid_rowconfigure(i, weight=0)
         self.embeddings_config_tab.grid_columnconfigure(0, weight=0)
@@ -262,9 +244,6 @@ class NovelGeneratorGUI:
         emb_model_name_entry.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
 
     def build_novel_params_area(self, start_row=2):
-        """
-        放置与小说本身相关的一些配置：主题、类型、章节数、文件路径等
-        """
         # 主题(Topic)
         topic_label = ctk.CTkLabel(self.right_frame, text="主题(Topic):", font=("Microsoft YaHei", 12))
         topic_label.grid(row=start_row, column=0, padx=5, pady=5, sticky="e")
@@ -317,9 +296,6 @@ class NovelGeneratorGUI:
         self.user_guide_text.grid(row=start_row+6, column=1, padx=5, pady=5, sticky="nsew")
 
     def build_main_buttons_area(self, start_row=10):
-        """
-        主要功能按钮 + 配置保存/加载 按钮
-        """
         self.right_frame.grid_rowconfigure(start_row, weight=0)
 
         self.btn_frame_config = ctk.CTkFrame(self.right_frame)
@@ -418,6 +394,7 @@ class NovelGeneratorGUI:
 
         content = self.setting_text.get("0.0", "end").strip()
         setting_file = os.path.join(filepath, "Novel_setting.txt")
+        clear_file_content(setting_file)
         save_string_to_txt(content, setting_file)
         self.log("已保存对 Novel_setting.txt 的修改。")
 
@@ -456,6 +433,7 @@ class NovelGeneratorGUI:
 
         content = self.directory_text.get("0.0", "end").strip()
         directory_file = os.path.join(filepath, "Novel_directory.txt")
+        clear_file_content(directory_file)
         save_string_to_txt(content, directory_file)
         self.log("已保存对 Novel_directory.txt 的修改。")
 
@@ -494,6 +472,7 @@ class NovelGeneratorGUI:
 
         content = self.character_text.get("0.0", "end").strip()
         char_file = os.path.join(filepath, "character_state.txt")
+        clear_file_content(char_file)
         save_string_to_txt(content, char_file)
         self.log("已保存对 character_state.txt 的修改。")
 
@@ -532,6 +511,7 @@ class NovelGeneratorGUI:
 
         content = self.summary_text.get("0.0", "end").strip()
         summary_file = os.path.join(filepath, "global_summary.txt")
+        clear_file_content(summary_file)
         save_string_to_txt(content, summary_file)
         self.log("已保存对 global_summary.txt 的修改。")
 
@@ -585,24 +565,35 @@ class NovelGeneratorGUI:
         if selected_dir:
             self.filepath_var.set(selected_dir)
 
-    # ------------------ 日志输出 ------------------
+    # ------------------ 日志输出（主线程安全） ------------------
     def log(self, message: str):
+        # 这里是主线程下安全的文本输出方法
         self.log_text.configure(state="normal")
         self.log_text.insert("end", message + "\n")
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
 
-    # ------------------ 功能区 --------------------
-    def disable_button(self, btn):
-        btn.configure(state="disabled")
+    def safe_log(self, message: str):
+        # 子线程中调用：把真正的日志操作切换回主线程执行
+        self.master.after(0, lambda: self.log(message))
 
-    def enable_button(self, btn):
-        btn.configure(state="normal")
+    # 由于按钮更新也属于UI操作，也需要安全方式
+    def disable_button_safe(self, btn):
+        self.master.after(0, lambda: btn.configure(state="disabled"))
 
+    def enable_button_safe(self, btn):
+        self.master.after(0, lambda: btn.configure(state="normal"))
+
+    # ------------------ 功能区（带线程处理） --------------------
     def generate_full_novel(self):
         """生成小说设定 & 目录"""
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先选择保存文件路径")
+            return
+
         def task():
-            self.disable_button(self.btn_generate_full)
+            self.disable_button_safe(self.btn_generate_full)
             try:
                 api_key = self.api_key_var.get().strip()
                 base_url = self.base_url_var.get().strip()
@@ -611,14 +602,9 @@ class NovelGeneratorGUI:
                 genre = self.genre_var.get().strip()
                 num_chapters = self.num_chapters_var.get()
                 word_number = self.word_number_var.get()
-                filepath = self.filepath_var.get().strip()
                 temperature = self.temperature_var.get()
 
-                if not filepath:
-                    messagebox.showwarning("警告", "请先选择保存文件路径")
-                    return
-
-                self.log("开始生成小说设定和目录...")
+                self.safe_log("开始生成小说设定和目录...")
                 Novel_novel_directory_generate(
                     api_key=api_key,
                     base_url=base_url,
@@ -630,35 +616,33 @@ class NovelGeneratorGUI:
                     filepath=filepath,
                     temperature=temperature
                 )
-                self.log("✅ 小说设定和目录生成完成。查看 Novel_setting.txt 和 Novel_directory.txt。")
+                self.safe_log("✅ 小说设定和目录生成完成。查看 Novel_setting.txt 和 Novel_directory.txt。")
             except Exception as e:
-                logging.error(f"生成小说设定 & 目录时出错: {e}")
-                self.log(f"❌ 生成小说设定 & 目录时出错: {e}")
+                log_error(f"生成小说设定 & 目录时出错: {e}")
+                self.safe_log(f"❌ 生成小说设定 & 目录时出错: {e}")
             finally:
-                self.enable_button(self.btn_generate_full)
+                self.enable_button_safe(self.btn_generate_full)
 
-        thread = threading.Thread(target=task)
-        thread.start()
+        threading.Thread(target=task, daemon=True).start()
 
     def generate_chapter_draft_ui(self):
         """生成当前章节的草稿"""
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先配置保存文件路径。")
+            return
+
         def task():
-            self.disable_button(self.btn_generate_chapter)
+            self.disable_button_safe(self.btn_generate_chapter)
             try:
                 api_key = self.api_key_var.get().strip()
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
-                filepath = self.filepath_var.get().strip()
-
-                if not filepath:
-                    self.log("请先配置保存文件路径。")
-                    return
-
                 novel_settings_file = os.path.join(filepath, "Novel_setting.txt")
                 novel_settings = read_file(novel_settings_file)
                 if not novel_settings.strip():
-                    self.log("⚠️ 未找到 Novel_setting.txt，请先生成设定。")
+                    self.safe_log("⚠️ 未找到 Novel_setting.txt，请先生成设定。")
                     return
 
                 character_state_file = os.path.join(filepath, "character_state.txt")
@@ -685,7 +669,7 @@ class NovelGeneratorGUI:
                     chapters_text_list=recent_3_texts
                 )
 
-                self.log(f"开始生成第{chap_num}章草稿...")
+                self.safe_log(f"开始生成第{chap_num}章草稿...")
                 draft_text = generate_chapter_draft(
                     novel_settings=novel_settings,
                     global_summary=global_summary,
@@ -705,43 +689,46 @@ class NovelGeneratorGUI:
                     embedding_base_url=self.embedding_url_var.get().strip()
                 )
                 if draft_text:
-                    self.log(f"✅ 第{chap_num}章草稿生成完成。请在左侧查看或编辑。")
-                    self.chapter_result.delete("0.0", "end")
-                    self.chapter_result.insert("0.0", draft_text)
-                    self.chapter_result.see("end")
+                    self.safe_log(f"✅ 第{chap_num}章草稿生成完成。请在左侧查看或编辑。")
+                    # 更新UI中的章节草稿
+                    self.master.after(0, lambda: self.show_chapter_in_textbox(draft_text))
                 else:
-                    self.log("⚠️ 本章草稿生成失败或无内容。")
+                    self.safe_log("⚠️ 本章草稿生成失败或无内容。")
 
             except Exception as e:
-                logging.error(f"生成章节草稿时出错: {e}")
-                self.log(f"❌ 生成章节草稿时出错: {e}")
+                log_error(f"生成章节草稿时出错: {e}")
+                self.safe_log(f"❌ 生成章节草稿时出错: {e}")
             finally:
-                self.enable_button(self.btn_generate_chapter)
+                self.enable_button_safe(self.btn_generate_chapter)
 
-        thread = threading.Thread(target=task)
-        thread.start()
+        threading.Thread(target=task, daemon=True).start()
+
+    def show_chapter_in_textbox(self, text: str):
+        self.chapter_result.delete("0.0", "end")
+        self.chapter_result.insert("0.0", text)
+        self.chapter_result.see("end")
 
     def finalize_chapter_ui(self):
         """定稿当前章节：更新全局摘要、角色状态、向量库等"""
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先配置保存文件路径。")
+            return
+
         def task():
-            self.disable_button(self.btn_finalize_chapter)
+            self.disable_button_safe(self.btn_finalize_chapter)
             try:
                 api_key = self.api_key_var.get().strip()
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
-                filepath = self.filepath_var.get().strip()
                 interface_format = self.interface_format_var.get().strip()
                 embedding_model_name = self.embedding_model_name_var.get().strip()
-
-                if not filepath:
-                    self.log("请先配置保存文件路径。")
-                    return
 
                 chap_num = self.chapter_num_var.get()
                 word_number = self.word_number_var.get()
 
-                self.log(f"开始定稿第{chap_num}章...")
+                self.safe_log(f"开始定稿第{chap_num}章...")
                 finalize_chapter(
                     novel_number=chap_num,
                     word_number=word_number,
@@ -753,38 +740,35 @@ class NovelGeneratorGUI:
                     temperature=temperature,
                     filepath=filepath
                 )
-                self.log(f"✅ 第{chap_num}章定稿完成（已更新全局摘要、角色状态、剧情要点、向量库）。")
+                self.safe_log(f"✅ 第{chap_num}章定稿完成（已更新全局摘要、角色状态、剧情要点、向量库）。")
 
                 # 读取定稿后的文本显示
                 chap_file = os.path.join(filepath, "chapters", f"chapter_{chap_num}.txt")
                 final_text = read_file(chap_file)
-                self.chapter_result.delete("0.0", "end")
-                self.chapter_result.insert("0.0", final_text)
-                self.chapter_result.see("end")
+                self.master.after(0, lambda: self.show_chapter_in_textbox(final_text))
 
             except Exception as e:
-                logging.error(f"定稿章节时出错: {e}")
-                self.log(f"❌ 定稿章节时出错: {e}")
+                log_error(f"定稿章节时出错: {e}")
+                self.safe_log(f"❌ 定稿章节时出错: {e}")
             finally:
-                self.enable_button(self.btn_finalize_chapter)
+                self.enable_button_safe(self.btn_finalize_chapter)
 
-        thread = threading.Thread(target=task)
-        thread.start()
+        threading.Thread(target=task, daemon=True).start()
 
     def do_consistency_check(self):
         """使用审校Agent对最新章节进行简单一致性或冲突检查"""
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先配置保存文件路径。")
+            return
+
         def task():
-            self.disable_button(self.btn_check_consistency)
+            self.disable_button_safe(self.btn_check_consistency)
             try:
                 api_key = self.api_key_var.get().strip()
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
-                filepath = self.filepath_var.get().strip()
-
-                if not filepath:
-                    self.log("请先配置保存文件路径。")
-                    return
 
                 novel_settings_file = os.path.join(filepath, "Novel_setting.txt")
                 character_state_file = os.path.join(filepath, "character_state.txt")
@@ -801,10 +785,10 @@ class NovelGeneratorGUI:
                 chapter_text = read_file(chap_file)
 
                 if not chapter_text.strip():
-                    self.log("⚠️ 当前章节文件为空或不存在，无法审校。")
+                    self.safe_log("⚠️ 当前章节文件为空或不存在，无法审校。")
                     return
 
-                self.log("开始一致性审校...")
+                self.safe_log("开始一致性审校...")
                 result = check_consistency(
                     novel_setting=novel_setting,
                     character_state=character_state,
@@ -816,17 +800,16 @@ class NovelGeneratorGUI:
                     temperature=temperature,
                     plot_arcs=plot_arcs
                 )
-                self.log("审校结果：")
-                self.log(result)
+                self.safe_log("审校结果：")
+                self.safe_log(result)
 
             except Exception as e:
-                logging.error(f"审校时出错: {e}")
-                self.log(f"❌ 审校时出错: {e}")
+                log_error(f"审校时出错: {e}")
+                self.safe_log(f"❌ 审校时出错: {e}")
             finally:
-                self.enable_button(self.btn_check_consistency)
+                self.enable_button_safe(self.btn_check_consistency)
 
-        thread = threading.Thread(target=task)
-        thread.start()
+        threading.Thread(target=task, daemon=True).start()
 
     def import_knowledge_handler(self):
         """处理导入知识库文件。"""
@@ -836,9 +819,9 @@ class NovelGeneratorGUI:
         )
         if selected_file:
             def task():
-                self.disable_button(self.btn_import_knowledge)
+                self.disable_button_safe(self.btn_import_knowledge)
                 try:
-                    self.log(f"开始导入知识库文件: {selected_file}")
+                    self.safe_log(f"开始导入知识库文件: {selected_file}")
                     import_knowledge_file(
                         api_key=self.api_key_var.get().strip(),
                         base_url=self.base_url_var.get().strip(),
@@ -847,15 +830,14 @@ class NovelGeneratorGUI:
                         file_path=selected_file,
                         embedding_base_url=self.embedding_url_var.get().strip()
                     )
-                    self.log("✅ 知识库文件导入完成。")
+                    self.safe_log("✅ 知识库文件导入完成。")
                 except Exception as e:
-                    logging.error(f"导入知识库时出错: {e}")
-                    self.log(f"❌ 导入知识库时出错: {e}")
+                    log_error(f"导入知识库时出错: {e}")
+                    self.safe_log(f"❌ 导入知识库时出错: {e}")
                 finally:
-                    self.enable_button(self.btn_import_knowledge)
+                    self.enable_button_safe(self.btn_import_knowledge)
 
-            thread = threading.Thread(target=task)
-            thread.start()
+            threading.Thread(target=task, daemon=True).start()
 
     def clear_vectorstore_handler(self):
         """清空向量库按钮：弹出二次确认。"""
