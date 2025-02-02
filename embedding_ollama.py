@@ -1,5 +1,6 @@
 # embedding_ollama.py
 import requests
+import traceback
 from typing import List
 
 class OllamaEmbeddings:
@@ -51,4 +52,4 @@ class OllamaEmbeddings:
                 raise ValueError("No 'embedding' field in Ollama response.")
             return result["embedding"]
         except requests.exceptions.RequestException as e:
-            raise Exception(f"Ollama embeddings request error: {e}")
+            raise Exception(f"Ollama embeddings request error: {e}\n{traceback.format_exc()}")

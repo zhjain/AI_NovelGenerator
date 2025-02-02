@@ -3,6 +3,7 @@
 import os
 import logging
 import re
+import traceback
 from typing import Dict, List, Optional
 from typing import TypedDict
 
@@ -59,25 +60,19 @@ def invoke_with_cleaning(model: ChatOpenAI, prompt: str) -> str:
     return cleaned_text.strip()
 
 # ============ 判断接口格式相关 ============
-
 def is_using_ollama_api(interface_format: str, base_url: str) -> bool:
     """
     当 interface_format == "Ollama" 时返回 True
     """
-    if interface_format.lower() == "ollama":
-        return True
-    return False
+    return interface_format.lower() == "ollama"
 
 def is_using_ml_studio_api(interface_format: str, base_url: str) -> bool:
     """
     如果用户在下拉里选择了 ML Studio
     """
-    if interface_format.lower() == "ml studio":
-        return True
-    return False
+    return interface_format.lower() == "ml studio"
 
 # ============ 创建 Embeddings 对象 ============
-
 def create_embeddings_object(
     api_key: str,
     base_url: str,
@@ -106,7 +101,6 @@ def create_embeddings_object(
         return OpenAIEmbeddings(openai_api_key=api_key, openai_api_base=base_url)
 
 # ============ 向量库相关 ============
-
 VECTOR_STORE_DIR = os.path.join(os.getcwd(), "vectorstore")
 if not os.path.exists(VECTOR_STORE_DIR):
     os.makedirs(VECTOR_STORE_DIR)
@@ -125,8 +119,8 @@ def clear_vector_store():
                 elif os.path.isdir(file_path):
                     shutil.rmtree(file_path)
             logging.info("Local vector store has been cleared.")
-        except Exception as e:
-            logging.warning(f"Failed to clear vector store: {e}")
+        except Exception:
+            logging.warning(f"Failed to clear vector store:\n{traceback.format_exc()}")
     else:
         logging.info("No vector store found to clear.")
 
@@ -253,7 +247,6 @@ def get_relevant_context_from_vector_store(
     return combined
 
 # ============ 多步生成：设置 & 目录 ============
-
 class OverallState(TypedDict):
     topic: str
     genre: str
@@ -383,7 +376,6 @@ def Novel_novel_directory_generate(
     logging.info("Novel settings and directory generated successfully.")
 
 # ============ 获取最近N章内容，生成短期摘要 ============
-
 def get_last_n_chapters_text(chapters_dir: str, current_chapter_num: int, n: int = 3) -> List[str]:
     """
     从指定文件夹中，读取最近 n 章的内容（如果存在），并按从旧到新的顺序返回文本列表。
@@ -436,7 +428,6 @@ def summarize_recent_chapters(
     return summary_text
 
 # ============ 新增：剧情要点/未解决冲突 ============
-
 PLOT_ARCS_PROMPT = """\
 下面是新生成的章节内容:
 {chapter_text}
@@ -474,7 +465,6 @@ def update_plot_arcs(
     return arcs_text
 
 # ============ 生成章节草稿 & 定稿 ============
-
 def generate_chapter_draft(
     novel_settings: str,
     global_summary: str,
@@ -707,7 +697,6 @@ def enrich_chapter_text(
     return enriched_text if enriched_text else chapter_text
 
 # ============ 导入外部知识文本 ============
-
 def import_knowledge_file(
     api_key: str,
     base_url: str, 

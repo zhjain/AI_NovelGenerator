@@ -95,6 +95,12 @@ class NovelGeneratorGUI:
         # 全局摘要 Tab
         self.build_summary_tab()
 
+    # ------------------ 统一异常处理方法 ------------------
+    def handle_exception(self, context: str):
+        full_message = f"{context}\n{traceback.format_exc()}"
+        logging.error(full_message)
+        self.safe_log(full_message)
+
     # ------------------ 主功能 Tab ------------------
     def build_main_tab(self):
         self.main_tab.rowconfigure(0, weight=1)
@@ -617,9 +623,8 @@ class NovelGeneratorGUI:
                     temperature=temperature
                 )
                 self.safe_log("✅ 小说设定和目录生成完成。查看 Novel_setting.txt 和 Novel_directory.txt。")
-            except Exception as e:
-                log_error(f"生成小说设定 & 目录时出错: {e}")
-                self.safe_log(f"❌ 生成小说设定 & 目录时出错: {e}")
+            except Exception:
+                self.handle_exception("生成小说设定 & 目录时出错")
             finally:
                 self.enable_button_safe(self.btn_generate_full)
 
@@ -695,9 +700,8 @@ class NovelGeneratorGUI:
                 else:
                     self.safe_log("⚠️ 本章草稿生成失败或无内容。")
 
-            except Exception as e:
-                log_error(f"生成章节草稿时出错: {e}")
-                self.safe_log(f"❌ 生成章节草稿时出错: {e}")
+            except Exception:
+                self.handle_exception("生成章节草稿时出错")
             finally:
                 self.enable_button_safe(self.btn_generate_chapter)
 
@@ -747,9 +751,8 @@ class NovelGeneratorGUI:
                 final_text = read_file(chap_file)
                 self.master.after(0, lambda: self.show_chapter_in_textbox(final_text))
 
-            except Exception as e:
-                log_error(f"定稿章节时出错: {e}")
-                self.safe_log(f"❌ 定稿章节时出错: {e}")
+            except Exception:
+                self.handle_exception("定稿章节时出错")
             finally:
                 self.enable_button_safe(self.btn_finalize_chapter)
 
@@ -803,9 +806,8 @@ class NovelGeneratorGUI:
                 self.safe_log("审校结果：")
                 self.safe_log(result)
 
-            except Exception as e:
-                log_error(f"审校时出错: {e}")
-                self.safe_log(f"❌ 审校时出错: {e}")
+            except Exception:
+                self.handle_exception("审校时出错")
             finally:
                 self.enable_button_safe(self.btn_check_consistency)
 
@@ -831,9 +833,8 @@ class NovelGeneratorGUI:
                         embedding_base_url=self.embedding_url_var.get().strip()
                     )
                     self.safe_log("✅ 知识库文件导入完成。")
-                except Exception as e:
-                    log_error(f"导入知识库时出错: {e}")
-                    self.safe_log(f"❌ 导入知识库时出错: {e}")
+                except Exception:
+                    self.handle_exception("导入知识库时出错")
                 finally:
                     self.enable_button_safe(self.btn_import_knowledge)
 
