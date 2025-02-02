@@ -37,9 +37,10 @@ from chapter_directory_parser import get_chapter_info_from_directory
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 def debug_log(prompt: str, response_content: str):
-        """打印Prompt与Response，可根据需要保留或去掉。"""
-        logging.info(f"\n[Prompt >>>] {prompt}\n")
-        logging.info(f"[Response >>>] {response_content}\n")
+    """打印Prompt与Response，可根据需要保留或去掉。"""
+    logging.info(f"\n[Prompt >>>] {prompt}\n")
+    logging.info(f"[Response >>>] {response_content}\n")
+
 
 # ============ 接口判断函数 ============
 def is_using_ollama_api(interface_format: str, base_url: str) -> bool:
@@ -58,6 +59,7 @@ def is_using_ml_studio_api(interface_format: str, base_url: str) -> bool:
         return True
     return False
 
+
 def create_embeddings_object(
     api_key: str,
     base_url: str,
@@ -68,14 +70,20 @@ def create_embeddings_object(
     """
     根据用户在UI中配置的参数，返回对应的 embeddings 对象。
     - 当 interface_format = "Ollama" => OllamaEmbeddings(...)
+      （此时把 embed_url 中的 /v1 替换成 /api，以便最后调用 /api/embed）
     - 当 interface_format = "OpenAI" or "ML Studio" => OpenAIEmbeddings
     - 其它情况可自行扩展
     """
     if is_using_ollama_api(interface_format, embed_url):
-        # 使用 Ollama Embeddings
-        return OllamaEmbeddings(model_name=embedding_model_name, base_url=embed_url)
+        # 去除末尾斜杠
+        fixed_url = embed_url.rstrip("/")
+        # 如果包含 /v1 则替换为 /api
+        fixed_url = fixed_url.replace("/v1", "/api")
+        return OllamaEmbeddings(
+            model_name=embedding_model_name,
+            base_url=fixed_url
+        )
     elif is_using_ml_studio_api(interface_format, base_url):
-        # 示例同用 OpenAIEmbeddings
         return OpenAIEmbeddings(openai_api_key=api_key, openai_api_base=base_url)
     else:
         # 默认使用 OpenAIEmbeddings
@@ -85,7 +93,6 @@ def create_embeddings_object(
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 # ============ 向量库相关 ============
-
 VECTOR_STORE_DIR = os.path.join(os.getcwd(), "vectorstore")
 if not os.path.exists(VECTOR_STORE_DIR):
     os.makedirs(VECTOR_STORE_DIR)
@@ -119,7 +126,7 @@ def init_vector_store(
 ) -> Chroma:
     """
     初始化并返回一个Chroma向量库，将传入的文本进行嵌入并保存到本地目录。
-    embedding_base_url 若不为空，则用于 Ollama 模式下；否则默认使用 base_url
+    embedding_base_url 若不为空，则用于 Ollama 模式下；否则默认使用 base_url。
     """
     embed_url = embedding_base_url if embedding_base_url else base_url
     embeddings = create_embeddings_object(
@@ -164,8 +171,8 @@ def update_vector_store(
     api_key: str, 
     base_url: str, 
     new_chapter: str, 
-    interface_format: str = "OpenAI",
-    embedding_model_name: str = "",
+    interface_format: str,
+    embedding_model_name: str,
     embedding_base_url: str = ""
 ) -> None:
     """
@@ -198,8 +205,8 @@ def get_relevant_context_from_vector_store(
     api_key: str,
     base_url: str,
     query: str,
-    interface_format: str = "OpenAI",
-    embedding_model_name: str = "",
+    interface_format: str,
+    embedding_model_name: str,
     embedding_base_url: str = "",
     k: int = 2
 ) -> str:
@@ -389,11 +396,24 @@ def get_last_n_chapters_text(chapters_dir: str, current_chapter_num: int, n: int
                 texts.append(text)
     return texts
 
-def summarize_recent_chapters(model, chapters_text_list: List[str]) -> str:
+def summarize_recent_chapters(
+        llm_model: str,
+        api_key: str,
+        base_url: str,
+        temperature: float,
+        chapters_text_list: List[str]
+    ) -> str:
     """
     将最近几章的文本拼接后，通过模型生成一个相对详细的“短期内容摘要”。
     如果没有可用的模型（model=None），则退化为简单截断示例。
     """
+    model = ChatOpenAI(
+        model=llm_model,
+        api_key=api_key,
+        base_url=base_url,
+        temperature=temperature
+    )
+
     if not chapters_text_list:
         return ""
 
@@ -410,7 +430,6 @@ def summarize_recent_chapters(model, chapters_text_list: List[str]) -> str:
 1.请用中文输出，不超过500字。
 2.仅回复摘要内容，不需要其他信息。
 """
-
     # 调用模型获取摘要
     response = model.invoke(prompt)
     if not response or not response.content.strip():
@@ -419,7 +438,6 @@ def summarize_recent_chapters(model, chapters_text_list: List[str]) -> str:
 
     # 返回模型生成的摘要文本
     return response.content.strip()
-
 
 
 # ============ 新增：更新剧情要点/未解决冲突 ============
@@ -498,8 +516,8 @@ def generate_chapter_draft(
         api_key=api_key,
         base_url=base_url,
         query="回顾剧情",
-        interface_format="OpenAI",  # 若需根据 UI 选择可再传参
-        embedding_model_name="",     # 同上
+        interface_format="OpenAI",
+        embedding_model_name="",
         embedding_base_url="",
         k=2
     )
@@ -562,6 +580,8 @@ def finalize_chapter(
     word_number: int,
     api_key: str,
     base_url: str,
+    interface_format: str,
+    embedding_model_name: str,
     model_name: str,
     temperature: float,
     filepath: str
@@ -659,8 +679,8 @@ def finalize_chapter(
         api_key=api_key, 
         base_url=base_url, 
         new_chapter=chapter_text,
-        interface_format="OpenAI", 
-        embedding_model_name=""
+        interface_format=interface_format,
+        embedding_model_name=embedding_model_name
     )
 
     logging.info(f"Chapter {novel_number} has been finalized.")
@@ -695,10 +715,18 @@ def enrich_chapter_text(
 
 # ============ 导入外部知识文本 ============
 
-def import_knowledge_file(api_key: str, base_url: str, file_path: str, embedding_base_url: str = "") -> None:
+def import_knowledge_file(
+        api_key: str,
+        base_url: str, 
+        interface_format: str,
+        embedding_model_name: str,
+        file_path: str, 
+        embedding_base_url: str = ""
+    ) -> None:
     """
     将用户选定的文本文件导入到向量库，以便在写作时检索。
     """
+    logging.info(f"开始导入知识库文件: {file_path}，当前接口格式: {interface_format}，当前模型: {embedding_model_name}")
     if not os.path.exists(file_path):
         logging.warning(f"知识库文件不存在: {file_path}")
         return
@@ -710,10 +738,17 @@ def import_knowledge_file(api_key: str, base_url: str, file_path: str, embedding
 
     paragraphs = advanced_split_content(content)
 
-    store = load_vector_store(api_key, base_url, embedding_base_url)
+    store = load_vector_store(api_key, base_url, interface_format, embedding_model_name, embedding_base_url)
     if not store:
         logging.info("Vector store does not exist. Initializing a new one for knowledge import...")
-        init_vector_store(api_key, base_url, paragraphs, embedding_base_url)
+        init_vector_store(
+            api_key,
+            base_url,
+            interface_format,
+            embedding_model_name,
+            paragraphs,
+            embedding_base_url
+        )
         return
 
     docs = [Document(page_content=p) for p in paragraphs]
@@ -727,7 +762,7 @@ def advanced_split_content(content: str,
     """
     将文本先按句子切分，然后根据语义相似度进行合并，最后根据max_length进行二次切分。
     """
-    nltk.download('punkt_tab', quiet=True)  # 如有需求，可改成 'punkt'
+    nltk.download('punkt_tab', quiet=True)
     sentences = nltk.sent_tokenize(content)
 
     if not sentences:

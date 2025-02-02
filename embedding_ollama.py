@@ -4,13 +4,15 @@ from typing import List
 
 class OllamaEmbeddings:
     """
-    Ollama 本地服务提供 /api/embeddings 接口，响应中包含 {"embedding": [...]}。
+    Ollama 本地服务提供的 Embedding 接口，
+    本需求里我们最终拼出形如: http://localhost:11434/api/embed
+    即 base_url + "/embed"
     """
 
     def __init__(self, model_name: str, base_url: str):
         self.model_name = model_name
-        self.base_url = base_url
-    
+        self.base_url = base_url  # 这里应形如 http://localhost:11434/api (不再含 /v1)
+
     def embed(self, texts: List[str]) -> List[List[float]]:
         embeddings = []
         for text in texts:
@@ -35,9 +37,10 @@ class OllamaEmbeddings:
 
     def embed_single_document(self, text: str) -> List[float]:
         """
-        调用 Ollama 本地服务接口，获取文本的 embedding
+        调用 Ollama 本地服务接口，获取文本的 embedding。
+        这里统一改为请求:  [base_url]/embed
         """
-        url = f"{self.base_url}/api/embeddings"
+        url = f"{self.base_url}/embed"
         data = {
             "model": self.model_name,
             "prompt": text

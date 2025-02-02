@@ -180,14 +180,12 @@ class NovelGeneratorGUI:
 
         # 回调：当接口格式下拉框发生变更时，如果 Base URL 为空，则根据接口类型自动填默认值
         def on_interface_format_changed(new_value):
-            # current_base = self.base_url_var.get().strip()
-            # if not current_base:
-                if new_value == "Ollama":
-                    self.base_url_var.set("http://localhost:11434/v1")
-                elif new_value == "ML Studio":
-                    self.base_url_var.set("http://localhost:1234/v1")
-                elif new_value == "OpenAI":
-                    self.base_url_var.set("https://api.agicto.cn/v1")
+            if new_value == "Ollama":
+                self.base_url_var.set("http://localhost:11434/v1")
+            elif new_value == "ML Studio":
+                self.base_url_var.set("http://localhost:1234/v1")
+            elif new_value == "OpenAI":
+                self.base_url_var.set("https://api.agicto.cn/v1")
 
         # 1. API Key
         api_key_label = ctk.CTkLabel(self.ai_config_tab, text="API Key:", font=("Microsoft YaHei", 12))
@@ -849,7 +847,8 @@ class NovelGeneratorGUI:
                     import_knowledge_file(
                         api_key=self.api_key_var.get().strip(),
                         base_url=self.base_url_var.get().strip(),
-                        # 传入 embedding_url + embedding_model_name
+                        interface_format=self.interface_format_var.get().strip(),
+                        embedding_base_url=self.embedding_url_var.get().strip(),
                         embedding_base_url=self.embedding_url_var.get().strip(),
                         file_path=selected_file
                     )
