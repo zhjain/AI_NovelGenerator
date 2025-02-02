@@ -38,12 +38,14 @@ class NovelGeneratorGUI:
         self.loaded_config = load_config(self.config_file)
 
         # ========== 主要的属性变量 ==========
-        # 右侧参数区 - 各种输入
+        # 注意：配置项较多，此处增加 embedding_model_name_var 以支持 Embedding 模型名称
         self.api_key_var = ctk.StringVar(value=self.loaded_config.get("api_key", ""))
         self.base_url_var = ctk.StringVar(value=self.loaded_config.get("base_url", "https://api.agicto.cn/v1"))
         self.interface_format_var = ctk.StringVar(value=self.loaded_config.get("interface_format", "OpenAI"))
         self.model_name_var = ctk.StringVar(value=self.loaded_config.get("model_name", "gpt-4o-mini"))
-        self.embedding_url_var = ctk.StringVar(value=self.loaded_config.get("embedding_url", ""))  # 新增：可选Embedding模型URL
+
+        self.embedding_url_var = ctk.StringVar(value=self.loaded_config.get("embedding_url", "")) 
+        self.embedding_model_name_var = ctk.StringVar(value=self.loaded_config.get("embedding_model_name", ""))
         
         self.temperature_var = ctk.DoubleVar(value=self.loaded_config.get("temperature", 0.7))
         self.topic_default = self.loaded_config.get("topic", "")
@@ -83,7 +85,7 @@ class NovelGeneratorGUI:
     # ------------------ 主功能 Tab ------------------
     def build_main_tab(self):
         """
-        主Tab: 左侧显示日志 / 本章内容, 右侧显示主要功能操作区
+        主Tab: 左侧显示章节草稿/日志, 右侧是功能区 & 配置区
         """
         self.main_tab.rowconfigure(0, weight=1)
         self.main_tab.columnconfigure(0, weight=1)
@@ -104,8 +106,8 @@ class NovelGeneratorGUI:
     def build_left_layout(self):
         """
         左侧包含两个区域：
-        1. 输出日志（下半部分）
-        2. 本章内容（上半部分）
+        1. 本章草稿内容（可编辑）
+        2. 输出日志（只读）
         """
         self.left_frame.grid_rowconfigure(0, weight=3)
         self.left_frame.grid_rowconfigure(1, weight=1)
@@ -115,177 +117,250 @@ class NovelGeneratorGUI:
         chapter_label = ctk.CTkLabel(self.left_frame, text="本章内容", font=("Microsoft YaHei", 14))
         chapter_label.grid(row=0, column=0, padx=5, pady=(5, 0), sticky="w")
 
+        # 章节草稿：可编辑
         self.chapter_result = ctk.CTkTextbox(self.left_frame, wrap="word", font=("Microsoft YaHei", 14))
         self.chapter_result.grid(row=0, column=0, sticky="nsew", padx=5, pady=(0, 5))
 
         # 输出日志
-        log_label = ctk.CTkLabel(self.left_frame, text="输出日志", font=("Microsoft YaHei", 14))
+        log_label = ctk.CTkLabel(self.left_frame, text="输出日志 (只读)", font=("Microsoft YaHei", 14))
         log_label.grid(row=1, column=0, padx=5, pady=(5, 0), sticky="w")
 
+        # 日志：只读
         self.log_text = ctk.CTkTextbox(self.left_frame, wrap="word", font=("Microsoft YaHei", 12))
         self.log_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 5))
 
+        # 设置只读
+        self.log_text.configure(state="disabled")
+
     def build_right_layout(self):
         """
-        右侧用于显示一系列参数输入和功能按钮。
+        右侧用于显示配置与功能按钮。
+        其中配置被拆分到一个子 TabView：AI接口配置 和 Embedding配置。
+        下面再放与小说相关的输入(主题/类型/章节数等)与功能按钮。
+        """
+        # 第一行创建一个子 TabView 放置 AI 配置 & Embedding 配置
+        self.config_tabview = ctk.CTkTabview(self.right_frame, width=350, height=300)
+        self.config_tabview.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
+
+        self.ai_config_tab = self.config_tabview.add("AI接口配置")
+        self.embeddings_config_tab = self.config_tabview.add("Embedding配置")
+
+        # 分别构建这两个 Tab 的布局
+        self.build_ai_config_tab()
+        self.build_embeddings_config_tab()
+
+        # 下面再放其他通用参数(主题、类型等) & 功能按钮
+        row_base = 1
+        # row_base + 1 处构建剩余输入，如topic, genre, etc.
+        self.build_novel_params_area(start_row=row_base+1)
+
+        # 最后放一些主功能按钮
+        self.build_main_buttons_area(start_row=row_base+10)
+
+    def build_ai_config_tab(self):
+        """
+        在 AI接口配置 子Tab 上放置：
+        - API Key
+        - Base URL
+        - 接口格式
+        - 模型名称
+        - Temperature
         """
         # 配置网格
-        for i in range(25):
-            self.right_frame.grid_rowconfigure(i, weight=0)
-        self.right_frame.grid_columnconfigure(0, weight=0)
-        self.right_frame.grid_columnconfigure(1, weight=1)
+        for i in range(6):
+            self.ai_config_tab.grid_rowconfigure(i, weight=0)
+        self.ai_config_tab.grid_columnconfigure(0, weight=0)
+        self.ai_config_tab.grid_columnconfigure(1, weight=1)
 
         # 1. API Key
-        api_key_label = ctk.CTkLabel(self.right_frame, text="API Key:")
+        api_key_label = ctk.CTkLabel(self.ai_config_tab, text="API Key:")
         api_key_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        api_key_entry = ctk.CTkEntry(self.right_frame, textvariable=self.api_key_var)
-        api_key_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=5, sticky="nsew")
+        api_key_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.api_key_var)
+        api_key_entry.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
         # 2. Base URL
-        base_url_label = ctk.CTkLabel(self.right_frame, text="Base URL:")
+        base_url_label = ctk.CTkLabel(self.ai_config_tab, text="Base URL:")
         base_url_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
-        base_url_entry = ctk.CTkEntry(self.right_frame, textvariable=self.base_url_var)
-        base_url_entry.grid(row=1, column=1, columnspan=2, padx=5, pady=5, sticky="nsew")
+        base_url_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.base_url_var)
+        base_url_entry.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
 
-        # 2.1 接口格式 下拉菜单
-        interface_label = ctk.CTkLabel(self.right_frame, text="接口格式:")
+        # 3. 接口格式
+        interface_label = ctk.CTkLabel(self.ai_config_tab, text="接口格式:")
         interface_label.grid(row=2, column=0, padx=5, pady=5, sticky="e")
         interface_options = ["OpenAI", "Ollama", "ML Studio", "Local"]
-        interface_dropdown = ctk.CTkOptionMenu(self.right_frame, values=interface_options, variable=self.interface_format_var)
-        interface_dropdown.grid(row=2, column=1, columnspan=2, padx=5, pady=5, sticky="nsew")
+        interface_dropdown = ctk.CTkOptionMenu(
+            self.ai_config_tab, 
+            values=interface_options, 
+            variable=self.interface_format_var
+        )
+        interface_dropdown.grid(row=2, column=1, padx=5, pady=5, sticky="nsew")
 
-        # 3. Model Name
-        model_name_label = ctk.CTkLabel(self.right_frame, text="Model Name:")
+        # 4. 模型名称
+        model_name_label = ctk.CTkLabel(self.ai_config_tab, text="Model Name:")
         model_name_label.grid(row=3, column=0, padx=5, pady=5, sticky="e")
-        model_name_entry = ctk.CTkEntry(self.right_frame, textvariable=self.model_name_var)
-        model_name_entry.grid(row=3, column=1, columnspan=2, padx=5, pady=5, sticky="nsew")
+        model_name_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.model_name_var)
+        model_name_entry.grid(row=3, column=1, padx=5, pady=5, sticky="nsew")
 
-        # 3.1 Embedding Model URL (可选)
-        embedding_url_label = ctk.CTkLabel(self.right_frame, text="Embedding URL:")
-        embedding_url_label.grid(row=4, column=0, padx=5, pady=5, sticky="e")
-        embedding_url_entry = ctk.CTkEntry(self.right_frame, textvariable=self.embedding_url_var)
-        embedding_url_entry.grid(row=4, column=1, columnspan=2, padx=5, pady=5, sticky="nsew")
+        # 5. Temperature
+        temp_label = ctk.CTkLabel(self.ai_config_tab, text="Temperature:")
+        temp_label.grid(row=4, column=0, padx=5, pady=5, sticky="e")
 
-        # 4. Temperature
-        temp_label = ctk.CTkLabel(self.right_frame, text="Temperature:")
-        temp_label.grid(row=5, column=0, padx=5, pady=5, sticky="e")
-        
         def update_temp_label(value):
             self.temp_value_label.configure(text=f"{float(value):.2f}")
-        temp_scale = ctk.CTkSlider(self.right_frame, from_=0.0, to=1.0, number_of_steps=100,
-                                   command=update_temp_label, variable=self.temperature_var)
-        temp_scale.grid(row=5, column=1, padx=5, pady=5, sticky="we")
-        
-        self.temp_value_label = ctk.CTkLabel(self.right_frame, text=f"{self.temperature_var.get():.2f}")
-        self.temp_value_label.grid(row=5, column=2, padx=1, pady=1, sticky="w")
 
-        # 5. 主题(Topic) 多行输入
+        temp_scale = ctk.CTkSlider(
+            self.ai_config_tab, 
+            from_=0.0, to=1.0, 
+            number_of_steps=100,
+            command=update_temp_label, 
+            variable=self.temperature_var
+        )
+        temp_scale.grid(row=4, column=1, padx=5, pady=5, sticky="we")
+        
+        self.temp_value_label = ctk.CTkLabel(self.ai_config_tab, text=f"{self.temperature_var.get():.2f}")
+        self.temp_value_label.grid(row=4, column=2, padx=1, pady=1, sticky="w")
+
+        # 保存/加载配置按钮(与AI配置归一处)
+        config_frame = ctk.CTkFrame(self.ai_config_tab)
+        config_frame.grid(row=5, column=0, columnspan=3, sticky="nsew")
+
+        save_config_btn = ctk.CTkButton(config_frame, text="保存配置", command=self.save_config_btn)
+        save_config_btn.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+
+        load_config_btn = ctk.CTkButton(config_frame, text="加载配置", command=self.load_config_btn)
+        load_config_btn.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+
+    def build_embeddings_config_tab(self):
+        """
+        在 Embedding配置 子Tab 上放置：
+        - Embedding URL
+        - Embedding 模型名称
+        """
+        for i in range(2):
+            self.embeddings_config_tab.grid_rowconfigure(i, weight=0)
+        self.embeddings_config_tab.grid_columnconfigure(0, weight=0)
+        self.embeddings_config_tab.grid_columnconfigure(1, weight=1)
+
+        # 1. Embedding URL
+        embedding_url_label = ctk.CTkLabel(self.embeddings_config_tab, text="Embedding URL:")
+        embedding_url_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        embedding_url_entry = ctk.CTkEntry(self.embeddings_config_tab, textvariable=self.embedding_url_var)
+        embedding_url_entry.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+
+        # 2. Embedding 模型名称
+        emb_model_name_label = ctk.CTkLabel(self.embeddings_config_tab, text="Embedding Model Name:")
+        emb_model_name_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        emb_model_name_entry = ctk.CTkEntry(self.embeddings_config_tab, textvariable=self.embedding_model_name_var)
+        emb_model_name_entry.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
+
+    def build_novel_params_area(self, start_row=2):
+        """
+        放置与小说本身相关的一些配置：主题、类型、章节数、文件路径等
+        """
+        # row = start_row
+        # 主题(Topic)
         topic_label = ctk.CTkLabel(self.right_frame, text="主题(Topic):", font=("Microsoft YaHei", 12))
-        topic_label.grid(row=6, column=0, padx=5, pady=5, sticky="e")
+        topic_label.grid(row=start_row, column=0, padx=5, pady=5, sticky="e")
         self.topic_text = ctk.CTkTextbox(self.right_frame, width=200, height=80, wrap="word", font=("Microsoft YaHei", 12))
-        self.topic_text.grid(row=6, column=1, columnspan=2, padx=5, pady=5, sticky="nsew")
+        self.topic_text.grid(row=start_row, column=1, padx=5, pady=5, sticky="nsew")
         if self.topic_default:
             self.topic_text.insert("0.0", self.topic_default)
 
-        # 6. 类型(Genre)
+        # 类型(Genre)
         genre_label = ctk.CTkLabel(self.right_frame, text="类型(Genre):", font=("Microsoft YaHei", 12))
-        genre_label.grid(row=7, column=0, padx=5, pady=5, sticky="e")
+        genre_label.grid(row=start_row+1, column=0, padx=5, pady=5, sticky="e")
         genre_entry = ctk.CTkEntry(self.right_frame, textvariable=self.genre_var, font=("Microsoft YaHei", 12))
-        genre_entry.grid(row=7, column=1, columnspan=2, padx=5, pady=5, sticky="nsew")
+        genre_entry.grid(row=start_row+1, column=1, padx=5, pady=5, sticky="nsew")
 
-        # 7. 章节数
+        # 章节数
         num_chapters_label = ctk.CTkLabel(self.right_frame, text="章节数:", font=("Microsoft YaHei", 12))
-        num_chapters_label.grid(row=8, column=0, padx=5, pady=5, sticky="e")
+        num_chapters_label.grid(row=start_row+2, column=0, padx=5, pady=5, sticky="e")
         num_chapters_entry = ctk.CTkEntry(self.right_frame, textvariable=self.num_chapters_var, width=80)
-        num_chapters_entry.grid(row=8, column=1, padx=5, pady=5, sticky="w")
+        num_chapters_entry.grid(row=start_row+2, column=1, padx=5, pady=5, sticky="w")
 
-        # 8. 每章字数
+        # 每章字数
         word_number_label = ctk.CTkLabel(self.right_frame, text="每章字数:", font=("Microsoft YaHei", 12))
-        word_number_label.grid(row=9, column=0, padx=5, pady=5, sticky="e")
+        word_number_label.grid(row=start_row+3, column=0, padx=5, pady=5, sticky="e")
         word_number_entry = ctk.CTkEntry(self.right_frame, textvariable=self.word_number_var, width=80)
-        word_number_entry.grid(row=9, column=1, padx=5, pady=5, sticky="w")
+        word_number_entry.grid(row=start_row+3, column=1, padx=5, pady=5, sticky="w")
 
-        # 9. 文件保存路径
+        # 保存路径
         filepath_label = ctk.CTkLabel(self.right_frame, text="保存路径:", font=("Microsoft YaHei", 12))
-        filepath_label.grid(row=10, column=0, padx=5, pady=5, sticky="e")
+        filepath_label.grid(row=start_row+4, column=0, padx=5, pady=5, sticky="e")
         filepath_entry = ctk.CTkEntry(self.right_frame, textvariable=self.filepath_var)
-        filepath_entry.grid(row=10, column=1, padx=5, pady=5, sticky="nsew")
-        browse_btn = ctk.CTkButton(self.right_frame, text="浏览...", command=self.browse_folder, width=60, font=("Microsoft YaHei", 12))
-        browse_btn.grid(row=10, column=2, padx=1, pady=1, sticky="w")
+        filepath_entry.grid(row=start_row+4, column=1, padx=5, pady=5, sticky="nsew")
+        browse_btn = ctk.CTkButton(self.right_frame, text="浏览...", command=self.browse_folder, width=60)
+        browse_btn.grid(row=start_row+4, column=2, padx=1, pady=1, sticky="w")
 
-        # 保存/加载配置按钮
-        config_frame = ctk.CTkFrame(self.right_frame)
-        config_frame.grid(row=11, column=1, columnspan=2, sticky="nsew")
-
-        save_config_btn = ctk.CTkButton(config_frame, text="保存配置", command=self.save_config_btn, font=("Microsoft YaHei", 12))
-        save_config_btn.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
-
-        load_config_btn = ctk.CTkButton(config_frame, text="加载配置", command=self.load_config_btn, font=("Microsoft YaHei", 12))
-        load_config_btn.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
-
-        # 10. 章节号
+        # 章节号
         chapter_num_label = ctk.CTkLabel(self.right_frame, text="章节号:", font=("Microsoft YaHei", 12))
-        chapter_num_label.grid(row=12, column=0, padx=5, pady=5, sticky="e")
+        chapter_num_label.grid(row=start_row+5, column=0, padx=5, pady=5, sticky="e")
         chapter_num_entry = ctk.CTkEntry(self.right_frame, textvariable=self.chapter_num_var, width=80)
-        chapter_num_entry.grid(row=12, column=1, padx=5, pady=5, sticky="w")
+        chapter_num_entry.grid(row=start_row+5, column=1, padx=5, pady=5, sticky="w")
 
-        # 11. “用户指导” 多行输入
+        # 用户指导
         guide_label = ctk.CTkLabel(self.right_frame, text="本章指导:", font=("Microsoft YaHei", 12))
-        guide_label.grid(row=13, column=0, padx=5, pady=5, sticky="ne")
+        guide_label.grid(row=start_row+6, column=0, padx=5, pady=5, sticky="ne")
         self.user_guide_text = ctk.CTkTextbox(self.right_frame, width=200, height=80, wrap="word", font=("Microsoft YaHei", 12))
-        self.user_guide_text.grid(row=13, column=1, columnspan=2, padx=5, pady=5, sticky="nsew")
+        self.user_guide_text.grid(row=start_row+6, column=1, padx=5, pady=5, sticky="nsew")
 
-        # 功能按钮区域
-        row_base = 14
+    def build_main_buttons_area(self, start_row=10):
+        """
+        主要功能按钮
+        """
+        self.right_frame.grid_rowconfigure(start_row, weight=0)
+        self.right_frame.grid_columnconfigure(0, weight=0)
+        self.right_frame.grid_columnconfigure(1, weight=0)
+
         self.btn_generate_full = ctk.CTkButton(
             self.right_frame, text="Step1. 生成设定 & 目录",
             command=self.generate_full_novel,
             font=("Microsoft YaHei", 12)
         )
-        self.btn_generate_full.grid(row=row_base, column=0, columnspan=3, padx=5, pady=5, sticky="ew")
+        self.btn_generate_full.grid(row=start_row, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         self.btn_generate_chapter = ctk.CTkButton(
             self.right_frame, text="Step2. 生成章节草稿",
             command=self.generate_chapter_draft_ui,
             font=("Microsoft YaHei", 12)
         )
-        self.btn_generate_chapter.grid(row=row_base+1, column=0, columnspan=3, padx=5, pady=5, sticky="ew")
+        self.btn_generate_chapter.grid(row=start_row+1, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         self.btn_finalize_chapter = ctk.CTkButton(
             self.right_frame, text="Step3. 定稿当前章节",
             command=self.finalize_chapter_ui,
             font=("Microsoft YaHei", 12)
         )
-        self.btn_finalize_chapter.grid(row=row_base+2, column=0, columnspan=3, padx=5, pady=5, sticky="ew")
+        self.btn_finalize_chapter.grid(row=start_row+2, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         self.btn_check_consistency = ctk.CTkButton(
             self.right_frame, text="[可选]一致性审校",
             command=self.do_consistency_check,
             font=("Microsoft YaHei", 12)
         )
-        self.btn_check_consistency.grid(row=row_base+3, column=0, columnspan=3, padx=5, pady=5, sticky="ew")
+        self.btn_check_consistency.grid(row=start_row+3, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         self.btn_import_knowledge = ctk.CTkButton(
             self.right_frame, text="[可选]导入知识库",
             command=self.import_knowledge_handler,
             font=("Microsoft YaHei", 12)
         )
-        self.btn_import_knowledge.grid(row=row_base+4, column=0, columnspan=3, padx=5, pady=5, sticky="ew")
+        self.btn_import_knowledge.grid(row=start_row+4, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         self.btn_clear_vectorstore = ctk.CTkButton(
             self.right_frame, text="清空向量库",
-            fg_color="red",  # 让按钮显眼一些
+            fg_color="red",
             command=self.clear_vectorstore_handler,
             font=("Microsoft YaHei", 12)
         )
-        self.btn_clear_vectorstore.grid(row=row_base+5, column=0, columnspan=3, padx=5, pady=5, sticky="ew")
+        self.btn_clear_vectorstore.grid(row=start_row+5, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         plot_arcs_btn = ctk.CTkButton(
             self.right_frame, text="[查看] 剧情要点",
             command=self.show_plot_arcs_ui,
             font=("Microsoft YaHei", 12)
         )
-        plot_arcs_btn.grid(row=row_base+6, column=0, columnspan=3, padx=5, pady=5, sticky="ew")
+        plot_arcs_btn.grid(row=start_row+6, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
     # ------------------ Novel Settings Tab ------------------
     def build_setting_tab(self):
@@ -460,6 +535,7 @@ class NovelGeneratorGUI:
             self.interface_format_var.set(cfg.get("interface_format", "OpenAI"))
             self.model_name_var.set(cfg.get("model_name", ""))
             self.embedding_url_var.set(cfg.get("embedding_url", ""))
+            self.embedding_model_name_var.set(cfg.get("embedding_model_name", ""))
             self.temperature_var.set(cfg.get("temperature", 0.7))
             self.genre_var.set(cfg.get("genre", ""))
             self.num_chapters_var.set(cfg.get("num_chapters", 10))
@@ -481,6 +557,7 @@ class NovelGeneratorGUI:
             "interface_format": self.interface_format_var.get(),
             "model_name": self.model_name_var.get(),
             "embedding_url": self.embedding_url_var.get(),
+            "embedding_model_name": self.embedding_model_name_var.get(),
             "temperature": self.temperature_var.get(),
             "topic": self.topic_text.get("0.0", "end").strip(),
             "genre": self.genre_var.get(),
@@ -501,8 +578,12 @@ class NovelGeneratorGUI:
 
     # ------------------ 日志输出 ------------------
     def log(self, message: str):
+        # 临时切换为可写
+        self.log_text.configure(state="normal")
         self.log_text.insert("end", message + "\n")
         self.log_text.see("end")
+        # 再切回只读
+        self.log_text.configure(state="disabled")
 
     # ------------------ 功能区 --------------------
     def disable_button(self, btn):
@@ -587,9 +668,9 @@ class NovelGeneratorGUI:
                 chapters_dir = os.path.join(filepath, "chapters")
                 recent_3_texts = get_last_n_chapters_text(chapters_dir, chap_num, n=3)
 
-                # 用当前模型生成一个较为详细的最近剧情摘要
+                # 简易生成最近章节摘要（示例）
                 recent_chapters_summary = summarize_recent_chapters(
-                    None,  # 这里只是示例，实际可根据你的需求传入对应的模型
+                    None,  # 此处仅示例
                     recent_3_texts
                 )
 
@@ -610,7 +691,7 @@ class NovelGeneratorGUI:
                     filepath=filepath
                 )
                 if draft_text:
-                    self.log(f"✅ 第{chap_num}章草稿生成完成。请在下方查看。")
+                    self.log(f"✅ 第{chap_num}章草稿生成完成。请在左侧查看或编辑。")
                     self.chapter_result.delete("0.0", "end")
                     self.chapter_result.insert("0.0", draft_text)
                     self.chapter_result.see("end")
@@ -741,7 +822,8 @@ class NovelGeneratorGUI:
                     import_knowledge_file(
                         api_key=self.api_key_var.get().strip(),
                         base_url=self.base_url_var.get().strip(),
-                        embedding_base_url=self.embedding_url_var.get().strip(),  # 新增：传入embedding url
+                        # 传入 embedding_url + embedding_model_name
+                        embedding_base_url=self.embedding_url_var.get().strip(),
                         file_path=selected_file
                     )
                     self.log("✅ 知识库文件导入完成。")

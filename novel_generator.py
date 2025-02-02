@@ -30,9 +30,47 @@ from prompt_definitions import (
     summary_prompt, update_character_state_prompt,
     chapter_outline_prompt, chapter_write_prompt
 )
-
-# ============ 新增：导入 chapter_directory_parser ============
+from embedding_ollama import OllamaEmbeddings
 from chapter_directory_parser import get_chapter_info_from_directory
+
+# ============ 适配接口的判断函数 ============
+def is_using_ollama_api(interface_format: str, base_url: str) -> bool:
+    """
+    当 interface_format == "Ollama" 时返回 True
+    """
+    if interface_format.lower() == "ollama":
+        return True
+    return False
+
+def is_using_ml_studio_api(interface_format: str, base_url: str) -> bool:
+    """
+    如果用户在下拉里选择了 ML Studio
+    """
+    if interface_format.lower() == "ml studio":
+        return True
+    return False
+
+def create_embeddings_object(
+    api_key: str,
+    base_url: str,
+    embed_url: str,
+    interface_format: str,
+    embedding_model_name: str
+):
+    """
+    根据用户在UI中配置的参数，返回对应的 embeddings 对象。
+    - 当 interface_format = "Ollama" => OllamaEmbeddings(...)
+    - 当 interface_format = "OpenAI" => OpenAIEmbeddings
+    - 当 interface_format = "ML Studio" => OpenAIEmbeddings
+    """
+    if is_using_ollama_api(interface_format, embed_url):
+        # 使用 Ollama Embeddings
+        return OllamaEmbeddings(model_name=embedding_model_name, base_url=embed_url)
+    elif is_using_ml_studio_api(interface_format, base_url):
+        return OpenAIEmbeddings(openai_api_key=api_key, openai_api_base=base_url)
+    else:
+        # 默认使用 OpenAIEmbeddings
+        return OpenAIEmbeddings(openai_api_key=api_key, openai_api_base=base_url)
 
 # ============ 日志配置 ============
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -67,17 +105,21 @@ def clear_vector_store():
     else:
         logging.info("No vector store found to clear.")
 
-def init_vector_store(api_key: str, base_url: str, texts: List[str], embedding_base_url: str = "") -> Chroma:
+def init_vector_store(
+        api_key: str,
+        base_url: str, 
+        interface_format: str,
+        embedding_model_name: str,
+        texts: List[str], 
+        embedding_base_url: str = ""
+    ) -> Chroma:
     """
     初始化并返回一个Chroma向量库，将传入的文本进行嵌入并保存到本地目录。
     如果不存在该目录，会自动创建。
     如果 embedding_base_url 不为空，则使用它做为embedding的base，否则默认base_url。
     """
     embed_url = embedding_base_url if embedding_base_url else base_url
-    embeddings = OpenAIEmbeddings(
-        openai_api_key=api_key,
-        openai_api_base=embed_url
-    )
+    embeddings = create_embeddings_object(api_key, base_url, embed_url, interface_format, embedding_model_name)
     documents = [Document(page_content=t) for t in texts]
     vectorstore = Chroma.from_documents(
         documents,
@@ -87,7 +129,13 @@ def init_vector_store(api_key: str, base_url: str, texts: List[str], embedding_b
     vectorstore.persist()
     return vectorstore
 
-def load_vector_store(api_key: str, base_url: str, embedding_base_url: str = "") -> Optional[Chroma]:
+def load_vector_store(
+        api_key: str, 
+        base_url: str, 
+        interface_format: str,
+        embedding_model_name: str,
+        embedding_base_url: str = ""
+    ) -> Optional[Chroma]:
     """
     读取已存在的向量库。若不存在则返回 None。
     同样支持可选的 embedding_base_url。
@@ -95,30 +143,42 @@ def load_vector_store(api_key: str, base_url: str, embedding_base_url: str = "")
     if not os.path.exists(VECTOR_STORE_DIR):
         return None
     embed_url = embedding_base_url if embedding_base_url else base_url
-    embeddings = OpenAIEmbeddings(
-        openai_api_key=api_key,
-        openai_api_base=embed_url
-    )
+    embeddings = create_embeddings_object(api_key, base_url, embed_url, interface_format, embedding_model_name)
     return Chroma(persist_directory=VECTOR_STORE_DIR, embedding_function=embeddings)
 
-def update_vector_store(api_key: str, base_url: str, new_chapter: str, embedding_base_url: str = "") -> None:
+def update_vector_store(
+        api_key: str, 
+        base_url: str, 
+        new_chapter: str, 
+        interface_format: str,
+        embedding_model_name: str,
+        embedding_base_url: str = ""
+    ) -> None:
     """将最新章节文本插入到向量库里，用于后续检索参考。若库不存在则初始化。"""
-    store = load_vector_store(api_key, base_url, embedding_base_url)
+    store = load_vector_store(api_key, base_url,interface_format, embedding_model_name, embedding_base_url)
     if not store:
         logging.info("Vector store does not exist. Initializing a new one...")
-        init_vector_store(api_key, base_url, [new_chapter], embedding_base_url)
+        init_vector_store(api_key, base_url,interface_format, embedding_model_name, [new_chapter], embedding_base_url)
         return
 
     new_doc = Document(page_content=new_chapter)
     store.add_documents([new_doc])
     store.persist()
 
-def get_relevant_context_from_vector_store(api_key: str, base_url: str, query: str, k: int = 2, embedding_base_url: str = "") -> str:
+def get_relevant_context_from_vector_store(
+        api_key: str, 
+        base_url: str, 
+        interface_format: str,
+        embedding_model_name: str,
+        query: str, 
+        k: int = 2, 
+        embedding_base_url: str = ""
+    ) -> str:
     """
     从向量库中检索与 query 最相关的 k 条文本，拼接后返回。
     若向量库不存在则返回空字符串。
     """
-    store = load_vector_store(api_key, base_url, embedding_base_url)
+    store = load_vector_store(api_key, base_url,interface_format, embedding_model_name, embedding_base_url)
     if not store:
         logging.warning("Vector store not found. Returning empty context.")
         return ""

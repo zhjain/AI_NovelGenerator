@@ -10,7 +10,13 @@ class OllamaEmbeddings:
     def __init__(self, model_name: str, base_url: str):
         self.model_name = model_name
         self.base_url = base_url
-
+    
+    def embed(self, texts: List[str]) -> List[List[float]]:
+        embeddings = []
+        for text in texts:
+            embeddings.append(self.embed_single_document(text))
+        return embeddings
+    
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """
         将多段文本转换为向量列表
