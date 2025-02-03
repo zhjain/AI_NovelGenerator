@@ -300,10 +300,13 @@ class NovelGeneratorGUI:
         def on_interface_format_changed(new_value):
             if new_value == "Ollama":
                 self.base_url_var.set("http://localhost:11434/v1")
+                self.embedding_url_var.set("http://localhost:11434/api")
             elif new_value == "ML Studio":
-                self.base_url_var.set("http://localhost:1234")
+                self.base_url_var.set("http://localhost:1234/v1")
+                self.embedding_url_var.set("http://localhost:1234/api")
             elif new_value == "OpenAI":
-                self.base_url_var.set("https://api.agicto.cn")
+                self.base_url_var.set("https://api.openai.com/v1")
+                self.embedding_url_var.set("https://api.openai.com/v1")
 
         for i in range(5):
             self.ai_config_tab.grid_rowconfigure(i, weight=0)
