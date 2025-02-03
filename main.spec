@@ -16,9 +16,12 @@ hiddenimports = ['typing_extensions',
                  'tiktoken_ext.openai_public',
                  'tiktoken_ext'
                  ]
+
 tmp_ret = collect_all('chromadb')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
+customtkinter_dir = r'c:/Users/xieli/Desktop/AI_NovelGenerator/.venv/Lib/site-packages/customtkinter'
+datas.append((customtkinter_dir, 'customtkinter'))
 
 a = Analysis(
     ['main.py'],
@@ -33,6 +36,7 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -40,7 +44,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='AI_NovelGenerator_V1.2.4',
+    name='AI_NovelGenerator_V1.3.0',
     debug=True,
     bootloader_ignore_signals=False,
     strip=False,
@@ -53,6 +57,7 @@ exe = EXE(
     entitlements_file=None,
     icon=['icon.ico']
 )
+
 coll = COLLECT(
     exe,
     a.binaries,
@@ -60,5 +65,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='AI_NovelGenerator_V1.2.4'
+    name='AI_NovelGenerator_V1.3.0'
 )

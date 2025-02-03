@@ -4,13 +4,6 @@ import traceback
 from typing import List
 
 class OllamaEmbeddings:
-    """
-    Ollama 本地服务提供的 Embedding 接口，
-    最终拼出形如: http://localhost:11434/api/embeddings
-    即 base_url + "/embeddings"
-    但是按文档，好像/embeddings接口已经被废弃了，现在是/embed才对，实际测试都可以用，视情况而定
-    """
-
     def __init__(self, model_name: str, base_url: str):
         self.model_name = model_name
         self.base_url = base_url
@@ -40,7 +33,17 @@ class OllamaEmbeddings:
         """
         调用 Ollama 本地服务接口，获取文本的 embedding。
         """
-        url = f"{self.base_url}/embeddings"
+        if self.base_url.endswith("/"):
+            self.base_url = self.base_url.rstrip("/")
+        if "api/embeddings" in self.base_url:
+            # 如果 base_url 已经包含 'api/embeddings'，则保持不变
+            url = f"{self.base_url.rstrip('/')}/api/embeddings"
+        else:
+            if "/v1" in self.base_url:
+                self.base_url = self.base_url.split("/v1")[0]
+            if "/api" in self.base_url:
+                self.base_url = self.base_url.split("/api")[0]
+            url = f"{self.base_url}/api/embeddings"
         data = {
             "model": self.model_name,
             "prompt": text
