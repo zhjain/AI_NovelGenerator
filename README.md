@@ -1,69 +1,54 @@
+# 📖 自动小说生成工具
 
-# **自动小说生成工具**
-
-> 一款基于大模型的多功能小说生成器，帮助你快速生成连贯、可控、可审校的长篇故事。
+> 一款基于大语言模型的多功能小说生成器，助您高效创作逻辑严谨、设定统一的长篇故事
 
 <div align="center">
+  
+✨ **核心功能** ✨
 
-| 功能点 | 描述 |
-|-------|-----|
-| 🚀 **小说设定** | 世界观 / 人物 / 剧情结构 |
-| 📝 **章节生成** | 多步生成，确保逻辑连贯 |
-| 👥 **角色状态 & 伏笔管理** | 追踪人物发展、重要事件 |
-| 🔍 **向量检索** | 保证长篇小说上下文一致 |
-| 📁 **自定义知识库** | 可上传本地参考文档 |
-| ✅ **一致性检查** | 自动识别剧情冲突或矛盾 |
-| 🖥 **GUI 友好交互** | 所见即所得，配置 & 操作简便 |
+| 功能模块          | 关键能力                          |
+|-------------------|----------------------------------|
+| 🎨 小说设定工坊    | 世界观架构 / 角色设定 / 剧情蓝图   |
+| 📖 智能章节生成    | 多阶段生成保障剧情连贯性           |
+| 🧠 状态追踪系统    | 角色发展轨迹 / 伏笔管理系统         |
+| 🔍 语义检索引擎    | 基于向量的长程上下文一致性维护      |
+| 📚 知识库集成      | 支持本地文档参考         |
+| ✅ 自动审校机制    | 检测剧情矛盾与逻辑冲突          |
+| 🖥 可视化工作台    | 全流程GUI操作，配置/生成/审校一体化 |
 
 </div>
 
 ---
 
-## **目录**
-1. [环境要求](#环境要求)  
-2. [安装依赖](#安装依赖)  
-3. [项目结构](#项目结构)  
-4. [配置 API Key](#配置-api-key)  
-5. [运行程序](#运行程序)  
-6. [使用指南](#使用指南)  
-7. [生成文件管理](#生成文件管理)  
-8. [常见问题](#常见问题)  
+## 📑 目录导航
+1. [环境准备](#-环境准备)  
+2. [项目架构](#-项目架构)  
+3. [配置指南](#⚙️-配置指南)  
+4. [运行说明](#🚀-运行说明)  
+5. [使用教程](#📘-使用教程)  
+6. [疑难解答](#❓-疑难解答)  
 
 ---
 
-## **环境要求**
-在开始之前，请确保你的系统满足以下条件：
-- 推荐**Python 3.10+**  
-- 已安装 **pip**（Python 包管理器）  
-- 拥有 **API Key**（如 OpenAI 或 DeepSeek）或 **支持OpenAI调用方式的本地接口**
+## 🛠 环境准备
+确保满足以下运行条件：
+- **Python 3.10+** 运行环境
+- **pip** 包管理工具
+- 有效API密钥：
+  - 云端服务：OpenAI / DeepSeek 等
+  - 本地服务：Ollama 等兼容 OpenAI 的接口
 
 ---
 
-## **安装依赖**
-1. 在项目根目录下，打开终端或命令行  
-2. 执行以下命令安装所有依赖：
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. （可选）若需要手动安装 `nltk` 的 `punkt_tab` 数据包：
-   ```bash
-   python
-   >>> import nltk
-   >>> nltk.download('punkt_tab')
-   ```
-
----
-
-## **项目结构**
-克隆或下载本项目后，你将看到如下目录结构：
-
+## 🗂 项目架构
 ```
-.
+novel-generator/
 ├── main.py                # 入口文件, 运行 GUI
 ├── ui.py                  # 图形界面
 ├── novel_generator.py     # 章节生成核心逻辑
 ├── consistency_checker.py # 一致性检查, 防止剧情冲突
-|—— chapter_directory_parser.py #格式化目录
+|—— chapter_directory_parser.py # 目录解析
+|—— embedding_ollama.py    # Ollama 本地服务的 Embedding 接口
 ├── prompt_definitions.py  # 定义 AI 提示词
 ├── utils.py               # 常用工具函数, 文件操作
 ├── config_manager.py      # 管理配置 (API Key, Base URL)
@@ -71,37 +56,49 @@
 └── vectorstore/           # (可选) 本地向量数据库存储
 ```
 
-> `vectorstore/` 文件夹将在程序运行后自动生成，存储向量检索的缓存数据。
-
 ---
 
-## **配置 API Key**
-你可以通过以下方式指定或修改 API Key：
-
-### 方式 1：**修改 `config.json`**
-打开 `config.json`，将对应字段替换为你的配置：
+## ⚙️ 配置指南
+### 📌 基础配置（config.json）
 ```json
 {
-    "api_key": "your_openai_api_key",
+    "api_key": "sk-XXXXXXXXXXXXXXXXXXXXXXXXXX",
     "base_url": "https://api.openai.com/v1",
-    "model_name": "gpt-4o",
-    "topic": "未来科技",
-    "genre": "科幻",
+    "interface_format": "OpenAI",
+    "model_name": "gpt-4o-mini",
+    "embedding_url": "https://api.openai.com/v1",
+    "embedding_model_name": "text-embedding-ada-002",
+    "temperature": 0.70,
+    "topic": "星穹铁道主角星穿越到原神提瓦特大陆，拯救提瓦特大陆，并与其中的角色展开爱恨情仇的小说",
+    "genre": "玄幻",
     "num_chapters": 10,
-    "word_number": 3000,
-    "filepath": "output_directory"
+    "word_number": 2000,
+    "filepath": "C:/Users/Documents/test"
 }
 ```
 
-### 方式 2：**通过 GUI 输入**
-1. 运行 `main.py` 后会弹出图形界面  
-2. 在界面输入 `API Key`、`Base URL`、模型名称、Temperature 等  
-3. 点击 **“保存配置”** 按钮，自动生成或更新 `config.json`
+### 🔧 配置说明
+1. **生成模型配置**
+   - `api_key`: 大模型服务的API密钥
+   - `base_url`: API终端地址（本地服务填Ollama等地址）
+   - `interface_format`: 接口模式
+   - `model_name`: 主生成模型名称（如gpt-4, claude-3等）
+   - `temperature`: 创意度参数（0-1，越高越有创造性）
+
+2. **Embedding模型配置**
+   - `embedding_model_name`: 模型名称（如Ollama的nomic-embed-text）
+   - `embedding_url`: 服务地址
+
+3. **小说参数配置**
+   - `topic`: 核心故事主题
+   - `genre`: 作品类型
+   - `num_chapters`: 总章节数
+   - `word_number`: 单章目标字数
+   - `filepath`: 生成文件存储路径
 
 ---
 
-## **运行程序**
-
+## 🚀 运行说明
 ### **方式 1：使用 Python 解释器**
 ```bash
 python main.py
@@ -119,93 +116,82 @@ pyinstaller main.spec
 
 ---
 
-## **使用指南**
-
+## 📘 使用教程
 1. **启动后，先完成基本参数设置：**  
    - **API Key & Base URL**（如 `https://api.openai.com/v1`）  
-   - **模型名称**（如 `gpt-3.5-turbo`、`gpt-4o` 等）
-   - **Temperature**(0~1，决定文字创意程度)  
-   - **主题(Topic)**（如 “废土世界的 AI 叛乱”）
-   - **类型(Genre)**（如 “科幻”/“魔幻”/“都市幻想”）
-   - **章节数**、**每章字数**（如 10 章，每章约 3000 字）
+   - **模型名称**（如 `gpt-3.5-turbo`、`gpt-4o` 等）  
+   - **Temperature** (0~1，决定文字创意程度)  
+   - **主题(Topic)**（如 “废土世界的 AI 叛乱”）  
+   - **类型(Genre)**（如 “科幻”/“魔幻”/“都市幻想”）  
+   - **章节数**、**每章字数**（如 10 章，每章约 3000 字）  
    - **保存路径**（建议创建一个新的输出文件夹）
 
-2. **点击「1. 生成设定 & 目录」**  
-   - 系统将基于主题、类型等生成：
-     - `Novel_setting.txt`：**世界观 & 整体设定**  
-     - `Novel_directory.txt`：**章节目录**（含标题、简要提示）  
-   - 可以在生成后的文件中查看、修改或补充世界观设定和目录标题。
+2. **点击「Step1. 生成设定」**  
+   - 系统将基于主题、类型、章节数等信息，生成：  
+     - `Novel_setting.txt`：包含世界观、角色信息、雷点暗线等。  
+   - 可以在生成后的 `Novel_setting.txt` 中查看或修改设定内容。
 
-3. **点击「2. 生成章节草稿」**  
-   - 在生成章节之前，你可以：
-     - **设置章节号**（如要写第 1 章，就填 `1`）  
-     - **在“本章指导”输入框**中，填写对本章剧情的任何期望或指导  
-   - 点击按钮后，系统将：
-     - 自动读取前文与 `Novel_directory.txt` 的标题与简述  
-     - 调用向量检索回顾剧情，确保上下文连贯  
+3. **点击「Step2. 生成目录」**  
+   - 系统会根据已完成的 `Novel_setting.txt` 内容，为全部章节生成：  
+     - `Novel_directory.txt`：包括每章标题和简要提示。  
+   - 可以在生成后的文件中查看、修改或补充章节标题和描述。
+
+4. **点击「Step3. 生成章节草稿」**  
+   - 在生成章节之前，你可以：  
+     - **设置章节号**（如写第 1 章，就填 `1`）  
+     - **在“本章指导”输入框**中提供对本章剧情的任何期望或提示  
+   - 点击按钮后，系统将：  
+     - 自动读取前文设定、`Novel_directory.txt`、以及已定稿章节  
+     - 调用向量检索回顾剧情，保证上下文连贯  
      - 生成本章大纲 (`outline_X.txt`) 及正文 (`chapter_X.txt`)  
-   - 生成完成后，可在左侧查看本章草稿内容。
+   - 生成完成后，你可在左侧的文本框查看、编辑本章草稿内容。
 
-4. **手动检查 & 编辑**（可选）  
-   - 你可以在文本编辑器中修改 `chapter_X.txt` 的内容，使之更符合个人审美或剧情要求。
-
-5. **点击「3. 定稿当前章节」**  
-   - 系统将：
-     - **更新全局摘要**（`global_summary.txt`）  
-     - **更新角色状态**（`character_state.txt`，包含人物发展、物品变动、剧情线索等）  
-     - **更新向量检索库**，保证后续章节能够调用最新信息。
+5. **点击「Step4. 定稿当前章节」**  
+   - 系统将：  
+     - **更新全局摘要**（写入 `global_summary.txt`）  
+     - **更新角色状态**（写入 `character_state.txt`）  
+     - **更新向量检索库**（保证后续章节可以调用最新信息）  
+     - **更新剧情要点**（如 `plot_arcs.txt`）  
+   - 定稿完成后，你可以在 `chapter_X.txt` 中看到定稿后的文本。
 
 6. **一致性检查（可选）**  
-   - 点击「4. 一致性审校」进行冲突检测，比如**角色逻辑、剧情前后矛盾**等。  
-   - 若有冲突，会在日志区输出详细说明。
+   - 点击「[可选] 一致性审校」按钮，对最新章节进行冲突检测，如角色逻辑、剧情前后矛盾等。  
+   - 若有冲突，会在日志区输出详细提示。
 
-7. **重复第 3~5 步** 直到所有章节完成！
+7. **重复第 4-6 步** 直到所有章节生成并定稿！
+
+> **向量检索配置提示**  
+> 1. embedding模型需要显示指定接口和模型名称；
+> 2. 使用**本地Ollama**的**Embedding**时需提前启动Ollama服务：  
+>    ```bash
+>    ollama serve  # 启动服务
+>    ollama pull nomic-embed-text  # 下载/启用模型
+>    ```
+> 3. 切换不同Embedding模型后建议清空vectorstore目录
+> 4. 云端Embedding需确保对应API权限已开通
 
 ---
 
-## **生成文件管理**
+## ❓ 疑难解答
+### Q1: 如何验证Embedding服务是否正常？
+```python
+# 测试脚本 test_embedding.py
+from core.embedding import get_embedder
 
-在你指定的输出文件夹中，程序会自动生成并维护以下文件/目录：
-
+embedder = get_embedder()
+test_text = "这是一个测试句子"
+vector = embedder.embed_query(test_text)
+print(f"向量维度: {len(vector)}")  # 正常应输出预设维度数
 ```
-output_directory/
-├── Novel_setting.txt       # 世界观 & 整体设定
-├── Novel_directory.txt     # 小说章节目录
-├── character_state.txt     # 角色状态/物品/伏笔等追踪
-├── global_summary.txt      # 整体剧情摘要 (用于后续上下文)
-├── outlines/               # 存放各章大纲 (outline_1.txt 等)
-├── chapters/               # 存放每一章成稿 (chapter_1.txt 等)
-└── vectorstore/            # 向量检索数据库 (可清空重置)
-```
 
-- **`character_state.txt`**：记录角色的动机、能力、持有物品等关键信息  
-- **`global_summary.txt`**：每次定稿后都会更新，保证剧情可被后续章节引用  
-- **`chapters/`**：每一章的正文会独立保存，方便你随时手动修改
+### Q2: 本地Embedding响应缓慢怎么办？
+- 检查模型是否已下载到本地
+- 尝试较小尺寸的Embedding模型
+- 增加Ollama服务的运行内存
+
+### Q3: 如何切换不同的Embedding提供商？
+在GUI界面中对应输入即可。
 
 ---
 
-## **常见问题**
-
-#### 1. **`Chroma' object has no attribute 'persist'` 错误**
-
-- **原因**：Chroma 库版本不匹配  
-- **解决办法**：
-  ```bash
-  pip uninstall chromadb
-  pip install chromadb==0.3.21
-  ```
-  或者在 `novel_generator.py` 中找到 `store.persist()` 并注释掉，如果你的版本不支持此方法。
-
----
-
-#### 2. **生成内容与预期不符**
-
-- **可能原因**：
-  1. 主题或类型过于宽泛，模型难以把握重点  
-  2. 角色和世界观设定不够详细，可在 `Novel_setting.txt` 中增补更多细节  
-- **建议**：
-  - 在 GUI 的“本章指导”输入框中填写更明确的剧情走向或重点描述，让模型更好地理解和发挥
-
----
-
-若你还有其他问题或需求，欢迎在项目 Issues 中提出。
+如有更多问题或需求，欢迎在**项目 Issues** 中提出。
