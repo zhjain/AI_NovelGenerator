@@ -10,6 +10,7 @@ from typing import List, Optional
 from langchain_openai import ChatOpenAI
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
+from chromadb.config import Settings
 from langchain.docstore.document import Document
 
 # nltk、sentence_transformers 及文本处理相关
@@ -185,7 +186,8 @@ def init_vector_store(
     vectorstore = Chroma.from_documents(
         documents,
         embedding=embeddings,
-        persist_directory=VECTOR_STORE_DIR
+        persist_directory=VECTOR_STORE_DIR,
+        client_settings=Settings(anonymized_telemetry=False)
     )
     vectorstore.persist()
     return vectorstore
@@ -213,7 +215,7 @@ def load_vector_store(
         interface_format=interface_format,
         embedding_model_name=embedding_model_name
     )
-    return Chroma(persist_directory=VECTOR_STORE_DIR, embedding_function=embeddings)
+    return Chroma(persist_directory=VECTOR_STORE_DIR, embedding_function=embeddings,client_settings=Settings(anonymized_telemetry=False))
 
 
 def update_vector_store(
