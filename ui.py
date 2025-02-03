@@ -21,6 +21,7 @@ from novel_generator import (
 )
 from consistency_checker import check_consistency
 
+
 def log_error(message: str):
     """
     用于打印详细的错误信息和堆栈信息。
@@ -30,6 +31,7 @@ def log_error(message: str):
 # 设置全局主题和颜色
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
+
 
 class NovelGeneratorGUI:
     def __init__(self, master):
@@ -51,15 +53,20 @@ class NovelGeneratorGUI:
         self.loaded_config = load_config(self.config_file)
 
         # ========== 主要的属性变量 ========== 
+        # LLM 接口相关
         self.api_key_var = ctk.StringVar(value=self.loaded_config.get("api_key", ""))
         self.base_url_var = ctk.StringVar(value=self.loaded_config.get("base_url", "https://api.agicto.cn/v1"))
         self.interface_format_var = ctk.StringVar(value=self.loaded_config.get("interface_format", "OpenAI"))
         self.model_name_var = ctk.StringVar(value=self.loaded_config.get("model_name", "gpt-4o-mini"))
+        self.temperature_var = ctk.DoubleVar(value=self.loaded_config.get("temperature", 0.7))
 
-        self.embedding_url_var = ctk.StringVar(value=self.loaded_config.get("embedding_url", "")) 
+        # Embedding 接口相关
+        self.embedding_interface_format_var = ctk.StringVar(value=self.loaded_config.get("embedding_interface_format", "OpenAI"))
+        self.embedding_api_key_var = ctk.StringVar(value=self.loaded_config.get("embedding_api_key", ""))
+        self.embedding_url_var = ctk.StringVar(value=self.loaded_config.get("embedding_url", ""))
         self.embedding_model_name_var = ctk.StringVar(value=self.loaded_config.get("embedding_model_name", ""))
 
-        self.temperature_var = ctk.DoubleVar(value=self.loaded_config.get("temperature", 0.7))
+        # 小说通用参数
         self.topic_default = self.loaded_config.get("topic", "")
         self.genre_var = ctk.StringVar(value=self.loaded_config.get("genre", "玄幻"))
         self.num_chapters_var = ctk.IntVar(value=self.loaded_config.get("num_chapters", 10))
@@ -298,13 +305,10 @@ class NovelGeneratorGUI:
         def on_interface_format_changed(new_value):
             if new_value == "Ollama":
                 self.base_url_var.set("http://localhost:11434/v1")
-                self.embedding_url_var.set("http://localhost:11434/api")
             elif new_value == "ML Studio":
                 self.base_url_var.set("http://localhost:1234/v1")
-                self.embedding_url_var.set("http://localhost:1234/api")
             elif new_value == "OpenAI":
                 self.base_url_var.set("https://api.openai.com/v1")
-                self.embedding_url_var.set("https://api.openai.com/v1")
 
         for i in range(5):
             self.ai_config_tab.grid_rowconfigure(i, weight=0)
@@ -314,7 +318,7 @@ class NovelGeneratorGUI:
 
         api_key_label = ctk.CTkLabel(
             self.ai_config_tab,
-            text="API Key:",
+            text="LLM API Key:",
             font=("Microsoft YaHei", 12)
         )
         api_key_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
@@ -327,7 +331,7 @@ class NovelGeneratorGUI:
 
         base_url_label = ctk.CTkLabel(
             self.ai_config_tab,
-            text="Base URL:",
+            text="LLM Base URL:",
             font=("Microsoft YaHei", 12)
         )
         base_url_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
@@ -340,7 +344,7 @@ class NovelGeneratorGUI:
 
         interface_label = ctk.CTkLabel(
             self.ai_config_tab,
-            text="接口格式:",
+            text="LLM 接口格式:",
             font=("Microsoft YaHei", 12)
         )
         interface_label.grid(row=2, column=0, padx=5, pady=5, sticky="e")
@@ -394,36 +398,73 @@ class NovelGeneratorGUI:
         self.temp_value_label.grid(row=4, column=2, padx=1, pady=1, sticky="w")
 
     def build_embeddings_config_tab(self):
-        for i in range(2):
+        def on_embedding_interface_changed(new_value):
+            if new_value == "Ollama":
+                self.embedding_url_var.set("http://localhost:11434/v1")
+            elif new_value == "ML Studio":
+                self.embedding_url_var.set("http://localhost:1234/v1")
+            elif new_value == "OpenAI":
+                self.embedding_url_var.set("https://api.openai.com/v1")
+
+        for i in range(3):
             self.embeddings_config_tab.grid_rowconfigure(i, weight=0)
         self.embeddings_config_tab.grid_columnconfigure(0, weight=0)
         self.embeddings_config_tab.grid_columnconfigure(1, weight=1)
 
-        embedding_url_label = ctk.CTkLabel(
+        emb_api_key_label = ctk.CTkLabel(
             self.embeddings_config_tab,
-            text="Embedding URL:",
+            text="Embedding API Key:",
             font=("Microsoft YaHei", 12)
         )
-        embedding_url_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        embedding_url_entry = ctk.CTkEntry(
+        emb_api_key_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        emb_api_key_entry = ctk.CTkEntry(
+            self.embeddings_config_tab,
+            textvariable=self.embedding_api_key_var,
+            font=("Microsoft YaHei", 12)
+        )
+        emb_api_key_entry.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+
+        emb_interface_label = ctk.CTkLabel(
+            self.embeddings_config_tab,
+            text="Embedding 接口格式:",
+            font=("Microsoft YaHei", 12)
+        )
+        emb_interface_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        emb_interface_options = ["OpenAI", "Ollama", "ML Studio"]
+        emb_interface_dropdown = ctk.CTkOptionMenu(
+            self.embeddings_config_tab,
+            values=emb_interface_options,
+            variable=self.embedding_interface_format_var,
+            command=on_embedding_interface_changed,
+            font=("Microsoft YaHei", 12)
+        )
+        emb_interface_dropdown.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
+
+        emb_url_label = ctk.CTkLabel(
+            self.embeddings_config_tab,
+            text="Embedding Base URL:",
+            font=("Microsoft YaHei", 12)
+        )
+        emb_url_label.grid(row=2, column=0, padx=5, pady=5, sticky="e")
+        emb_url_entry = ctk.CTkEntry(
             self.embeddings_config_tab,
             textvariable=self.embedding_url_var,
             font=("Microsoft YaHei", 12)
         )
-        embedding_url_entry.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+        emb_url_entry.grid(row=2, column=1, padx=5, pady=5, sticky="nsew")
 
         emb_model_name_label = ctk.CTkLabel(
             self.embeddings_config_tab,
             text="Embedding Model Name:",
             font=("Microsoft YaHei", 12)
         )
-        emb_model_name_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        emb_model_name_label.grid(row=3, column=0, padx=5, pady=5, sticky="e")
         emb_model_name_entry = ctk.CTkEntry(
             self.embeddings_config_tab,
             textvariable=self.embedding_model_name_var,
             font=("Microsoft YaHei", 12)
         )
-        emb_model_name_entry.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
+        emb_model_name_entry.grid(row=3, column=1, padx=5, pady=5, sticky="nsew")
 
     # ========== 保存/加载 配置按钮区域 ==========
     def build_main_buttons_area(self):
@@ -837,13 +878,20 @@ class NovelGeneratorGUI:
     def load_config_btn(self):
         cfg = load_config(self.config_file)
         if cfg:
+            # LLM
             self.api_key_var.set(cfg.get("api_key", ""))
             self.base_url_var.set(cfg.get("base_url", ""))
             self.interface_format_var.set(cfg.get("interface_format", "OpenAI"))
             self.model_name_var.set(cfg.get("model_name", ""))
+            self.temperature_var.set(cfg.get("temperature", 0.7))
+
+            # Embedding
+            self.embedding_api_key_var.set(cfg.get("embedding_api_key", ""))
+            self.embedding_interface_format_var.set(cfg.get("embedding_interface_format", "OpenAI"))
             self.embedding_url_var.set(cfg.get("embedding_url", ""))
             self.embedding_model_name_var.set(cfg.get("embedding_model_name", ""))
-            self.temperature_var.set(cfg.get("temperature", 0.7))
+
+            # Novel
             self.genre_var.set(cfg.get("genre", ""))
             self.num_chapters_var.set(cfg.get("num_chapters", 10))
             self.word_number_var.set(cfg.get("word_number", 3000))
@@ -859,13 +907,20 @@ class NovelGeneratorGUI:
 
     def save_config_btn(self):
         config_data = {
+            # LLM
             "api_key": self.api_key_var.get(),
             "base_url": self.base_url_var.get(),
             "interface_format": self.interface_format_var.get(),
             "model_name": self.model_name_var.get(),
+            "temperature": self.temperature_var.get(),
+
+            # Embedding
+            "embedding_api_key": self.embedding_api_key_var.get(),
+            "embedding_interface_format": self.embedding_interface_format_var.get(),
             "embedding_url": self.embedding_url_var.get(),
             "embedding_model_name": self.embedding_model_name_var.get(),
-            "temperature": self.temperature_var.get(),
+
+            # Novel
             "topic": self.topic_text.get("0.0", "end").strip(),
             "genre": self.genre_var.get(),
             "num_chapters": self.num_chapters_var.get(),
@@ -1031,9 +1086,11 @@ class NovelGeneratorGUI:
                     temperature=temperature,
                     novel_novel_directory=novel_directory,
                     filepath=filepath,
-                    interface_format=self.interface_format_var.get().strip(),
+
+                    # 传入 Embedding 的专用配置
+                    interface_format=self.embedding_interface_format_var.get().strip(),
                     embedding_model_name=self.embedding_model_name_var.get().strip(),
-                    embedding_base_url=self.embedding_url_var.get().strip()
+                    embedding_base_url=self.embedding_url_var.get().strip(),
                 )
                 if draft_text:
                     self.safe_log(f"✅ 第{chap_num}章草稿生成完成。请在左侧查看或编辑。")
@@ -1067,8 +1124,9 @@ class NovelGeneratorGUI:
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
-                interface_format = self.interface_format_var.get().strip()
+                interface_format = self.embedding_interface_format_var.get().strip()
                 embedding_model_name = self.embedding_model_name_var.get().strip()
+                embedding_base_url = self.embedding_url_var.get().strip()
 
                 chap_num = self.chapter_num_var.get()
                 word_number = self.word_number_var.get()
@@ -1083,7 +1141,9 @@ class NovelGeneratorGUI:
                     embedding_model_name=embedding_model_name,
                     model_name=model_name,
                     temperature=temperature,
-                    filepath=filepath
+                    filepath=filepath,
+                    embedding_base_url=embedding_base_url,
+                    embedding_api_key=self.embedding_api_key_var.get().strip()
                 )
                 self.safe_log(f"✅ 第{chap_num}章定稿完成（已更新全局摘要、角色状态、剧情要点、向量库）。")
 
@@ -1167,12 +1227,13 @@ class NovelGeneratorGUI:
                 try:
                     self.safe_log(f"开始导入知识库文件: {selected_file}")
                     import_knowledge_file(
-                        api_key=self.api_key_var.get().strip(),
-                        base_url=self.base_url_var.get().strip(),
-                        interface_format=self.interface_format_var.get().strip(),
+                        api_key=self.embedding_api_key_var.get().strip(),
+                        base_url=self.embedding_url_var.get().strip(),
+                        interface_format=self.embedding_interface_format_var.get().strip(),
                         embedding_model_name=self.embedding_model_name_var.get().strip(),
                         file_path=selected_file,
-                        embedding_base_url=self.embedding_url_var.get().strip()
+                        embedding_base_url=self.embedding_url_var.get().strip(),
+                        filepath=self.filepath_var.get().strip()  # 新增，用于本地化 vectorstore
                     )
                     self.safe_log("✅ 知识库文件导入完成。")
                 except Exception:
@@ -1183,11 +1244,16 @@ class NovelGeneratorGUI:
             threading.Thread(target=task, daemon=True).start()
 
     def clear_vectorstore_handler(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先配置保存文件路径。")
+            return
+
         first_confirm = messagebox.askyesno("警告", "确定要清空本地向量库吗？此操作不可恢复！")
         if first_confirm:
             second_confirm = messagebox.askyesno("二次确认", "你确定真的要删除所有向量数据吗？此操作不可恢复！")
             if second_confirm:
-                clear_vector_store()
+                clear_vector_store(filepath)
                 self.log("已清空向量库。")
 
     def show_plot_arcs_ui(self):
@@ -1303,6 +1369,7 @@ class NovelGeneratorGUI:
         clear_file_content(summary_file)
         save_string_to_txt(content, summary_file)
         self.log("已保存对 global_summary.txt 的修改。")
+
 
 # 入口
 if __name__ == "__main__":
