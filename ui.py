@@ -43,10 +43,8 @@ class NovelGeneratorGUI:
         except Exception:
             pass
 
-        # 窗口最大化
-        self.master.state("zoomed")
         # 配置窗口大小
-        self.master.geometry("1428x960")
+        self.master.geometry("1350x840")
 
         # 配置持久化
         self.config_file = "config.json"
@@ -458,7 +456,10 @@ class NovelGeneratorGUI:
         """
         右侧下方区域: 输入主题, 类型, 章节数, 字数, 保存路径, 指导信息等
         """
-        self.params_frame = ctk.CTkFrame(self.right_frame)
+        self.params_frame = ctk.CTkScrollableFrame(
+            self.right_frame,
+            orientation="vertical"  # 默认垂直滚动
+        )
         self.params_frame.grid(row=start_row, column=0, sticky="nsew", padx=5, pady=5)
         self.params_frame.columnconfigure(1, weight=1)
 
