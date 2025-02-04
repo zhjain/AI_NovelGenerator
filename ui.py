@@ -28,6 +28,7 @@ def log_error(message: str):
     """
     logging.error(f"{message}\n{traceback.format_exc()}")
 
+
 # 设置全局主题和颜色
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -52,12 +53,14 @@ class NovelGeneratorGUI:
         self.config_file = "config.json"
         self.loaded_config = load_config(self.config_file)
 
-        # ========== 主要的属性变量 ========== 
+        # ========== 主要的属性变量 ==========
         # LLM 接口相关
         self.api_key_var = ctk.StringVar(value=self.loaded_config.get("api_key", ""))
         self.base_url_var = ctk.StringVar(value=self.loaded_config.get("base_url", "https://api.agicto.cn/v1"))
         self.interface_format_var = ctk.StringVar(value=self.loaded_config.get("interface_format", "OpenAI"))
         self.model_name_var = ctk.StringVar(value=self.loaded_config.get("model_name", "gpt-4o-mini"))
+
+        # 注意：使用 DoubleVar/IntVar 时，如果用户输入空值可能报错，需要在取值时做安全处理
         self.temperature_var = ctk.DoubleVar(value=self.loaded_config.get("temperature", 0.7))
 
         # Embedding 接口相关
@@ -66,16 +69,23 @@ class NovelGeneratorGUI:
         self.embedding_url_var = ctk.StringVar(value=self.loaded_config.get("embedding_url", ""))
         self.embedding_model_name_var = ctk.StringVar(value=self.loaded_config.get("embedding_model_name", ""))
 
+        # 新增 Embedding 检索的 k 值（默认为4）
+        self.embedding_retrieval_k_var = ctk.IntVar(value=self.loaded_config.get("embedding_retrieval_k", 4))
+
         # 小说通用参数
         self.topic_default = self.loaded_config.get("topic", "")
         self.genre_var = ctk.StringVar(value=self.loaded_config.get("genre", "玄幻"))
+
+        # 章节数、每章字数等用 IntVar，但取值时需要安全转换
         self.num_chapters_var = ctk.IntVar(value=self.loaded_config.get("num_chapters", 10))
         self.word_number_var = ctk.IntVar(value=self.loaded_config.get("word_number", 3000))
+
         self.filepath_var = ctk.StringVar(value=self.loaded_config.get("filepath", ""))
 
+        # 当前要处理的章节号
         self.chapter_num_var = ctk.IntVar(value=1)
 
-        # ========== 主容器使用 TabView ========== 
+        # ========== 主容器使用 TabView ==========
         self.tabview = ctk.CTkTabview(self.master, width=1200, height=800)
         self.tabview.pack(fill="both", expand=True)
 
@@ -95,13 +105,15 @@ class NovelGeneratorGUI:
         self.build_summary_tab()
         self.build_chapters_tab()  # 新增
 
-    # ------------------ 统一异常处理方法 ------------------ 
-    def handle_exception(self, context: str):
-        full_message = f"{context}\n{traceback.format_exc()}"
-        logging.error(full_message)
-        self.safe_log(full_message)
+    # ------------------ 工具方法：安全获取 IntVar ------------------
+    def safe_get_int(self, int_var, default=0):
+        try:
+            return int(int_var.get())
+        except Exception:
+            int_var.set(default)
+            return default
 
-    # ------------------ 主功能 Tab ------------------ 
+    # ------------------ 主功能 Tab ------------------
     def build_main_tab(self):
         """
         主Tab分为左右两栏：
@@ -140,34 +152,34 @@ class NovelGeneratorGUI:
         self.left_frame.grid_rowconfigure(4, weight=1)
         self.left_frame.grid_columnconfigure(0, weight=1)
 
-        # ========== 本章内容 ========== 
+        # ========== 本章内容 ==========
         chapter_label = ctk.CTkLabel(
             self.left_frame,
             text="本章内容 (可编辑)",
-            font=("Microsoft YaHei", 14)
+            font=("Microsoft YaHei", 12)
         )
         chapter_label.grid(row=0, column=0, padx=5, pady=(5, 0), sticky="w")
 
         # 章节草稿：可编辑
         self.chapter_result = ctk.CTkTextbox(
-            self.left_frame, 
-            wrap="word", 
+            self.left_frame,
+            wrap="word",
             font=("Microsoft YaHei", 14)
         )
         self.chapter_result.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 5))
 
-        # ========== Step1~4按钮 ========== 
+        # ========== Step1~4按钮 ==========
         self.build_step_buttons_area()
 
-        # ========== 输出日志 label ========== 
+        # ========== 输出日志 label ==========
         log_label = ctk.CTkLabel(
             self.left_frame,
             text="输出日志 (只读)",
-            font=("Microsoft YaHei", 14)
+            font=("Microsoft YaHei", 12)
         )
         log_label.grid(row=3, column=0, padx=5, pady=(5, 0), sticky="w")
 
-        # ========== 日志：只读 ========== 
+        # ========== 日志：只读 ==========
         self.log_text = ctk.CTkTextbox(
             self.left_frame,
             wrap="word",
@@ -248,7 +260,7 @@ class NovelGeneratorGUI:
         # 3) 可选功能按钮
         self.build_optional_buttons_area(start_row=2)
 
-    # ------------------ 可选功能按钮区域（右下） ------------------ 
+    # ------------------ 可选功能按钮区域（右下） ------------------
     def build_optional_buttons_area(self, start_row=2):
         """
         放在右侧的最下方：包括 一致性审校、导入知识库、清空向量库、查看剧情要点
@@ -389,7 +401,7 @@ class NovelGeneratorGUI:
             variable=self.temperature_var
         )
         temp_scale.grid(row=4, column=1, padx=5, pady=5, sticky="we")
-        
+
         self.temp_value_label = ctk.CTkLabel(
             self.ai_config_tab,
             text=f"{self.temperature_var.get():.2f}",
@@ -406,7 +418,7 @@ class NovelGeneratorGUI:
             elif new_value == "OpenAI":
                 self.embedding_url_var.set("https://api.openai.com/v1")
 
-        for i in range(3):
+        for i in range(5):
             self.embeddings_config_tab.grid_rowconfigure(i, weight=0)
         self.embeddings_config_tab.grid_columnconfigure(0, weight=0)
         self.embeddings_config_tab.grid_columnconfigure(1, weight=1)
@@ -466,6 +478,20 @@ class NovelGeneratorGUI:
         )
         emb_model_name_entry.grid(row=3, column=1, padx=5, pady=5, sticky="nsew")
 
+        # 新增：检索 K 值设置
+        emb_retrieval_k_label = ctk.CTkLabel(
+            self.embeddings_config_tab,
+            text="Retrieval Top-K:",
+            font=("Microsoft YaHei", 12)
+        )
+        emb_retrieval_k_label.grid(row=4, column=0, padx=5, pady=5, sticky="e")
+        emb_retrieval_k_entry = ctk.CTkEntry(
+            self.embeddings_config_tab,
+            textvariable=self.embedding_retrieval_k_var,
+            font=("Microsoft YaHei", 12)
+        )
+        emb_retrieval_k_entry.grid(row=4, column=1, padx=5, pady=5, sticky="nsew")
+
     # ========== 保存/加载 配置按钮区域 ==========
     def build_main_buttons_area(self):
         """
@@ -499,7 +525,7 @@ class NovelGeneratorGUI:
         """
         self.params_frame = ctk.CTkScrollableFrame(
             self.right_frame,
-            orientation="vertical"  # 默认垂直滚动
+            orientation="vertical"
         )
         self.params_frame.grid(row=start_row, column=0, sticky="nsew", padx=5, pady=5)
         self.params_frame.columnconfigure(1, weight=1)
@@ -536,35 +562,45 @@ class NovelGeneratorGUI:
         )
         genre_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
-        # 章节数
+        # 章节数、每章字数 放在同一行
+        row_for_chapter_and_word = 2
         num_chapters_label = ctk.CTkLabel(
             self.params_frame,
             text="章节数:",
             font=("Microsoft YaHei", 12)
         )
-        num_chapters_label.grid(row=2, column=0, padx=5, pady=5, sticky="e")
+        num_chapters_label.grid(row=row_for_chapter_and_word, column=0, padx=5, pady=5, sticky="e")
+
+        # 此处放一个小的Frame，用于在同一行放两个输入框
+        ch_word_frame = ctk.CTkFrame(self.params_frame)
+        ch_word_frame.grid(row=row_for_chapter_and_word, column=1, padx=5, pady=5, sticky="ew")
+        ch_word_frame.columnconfigure(0, weight=0)
+        ch_word_frame.columnconfigure(1, weight=0)
+        ch_word_frame.columnconfigure(2, weight=0)
+        ch_word_frame.columnconfigure(3, weight=1)
+
         num_chapters_entry = ctk.CTkEntry(
-            self.params_frame,
+            ch_word_frame,
             textvariable=self.num_chapters_var,
-            width=80,
+            width=60,
             font=("Microsoft YaHei", 12)
         )
-        num_chapters_entry.grid(row=2, column=1, padx=5, pady=5, sticky="w")
+        num_chapters_entry.grid(row=0, column=0, padx=5, pady=5, sticky="w")
 
-        # 每章字数
         word_number_label = ctk.CTkLabel(
-            self.params_frame,
+            ch_word_frame,
             text="每章字数:",
             font=("Microsoft YaHei", 12)
         )
-        word_number_label.grid(row=3, column=0, padx=5, pady=5, sticky="e")
+        word_number_label.grid(row=0, column=1, padx=(15, 5), pady=5, sticky="e")
+
         word_number_entry = ctk.CTkEntry(
-            self.params_frame,
+            ch_word_frame,
             textvariable=self.word_number_var,
-            width=80,
+            width=60,
             font=("Microsoft YaHei", 12)
         )
-        word_number_entry.grid(row=3, column=1, padx=5, pady=5, sticky="w")
+        word_number_entry.grid(row=0, column=2, padx=5, pady=5, sticky="w")
 
         # 保存路径
         filepath_label = ctk.CTkLabel(
@@ -572,10 +608,10 @@ class NovelGeneratorGUI:
             text="保存路径:",
             font=("Microsoft YaHei", 12)
         )
-        filepath_label.grid(row=4, column=0, padx=5, pady=5, sticky="e")
-        
+        filepath_label.grid(row=3, column=0, padx=5, pady=5, sticky="e")
+
         self.filepath_frame = ctk.CTkFrame(self.params_frame)
-        self.filepath_frame.grid(row=4, column=1, padx=5, pady=5, sticky="nsew")
+        self.filepath_frame.grid(row=3, column=1, padx=5, pady=5, sticky="nsew")
         self.filepath_frame.columnconfigure(0, weight=1)
 
         filepath_entry = ctk.CTkEntry(
@@ -599,14 +635,14 @@ class NovelGeneratorGUI:
             text="章节号:",
             font=("Microsoft YaHei", 12)
         )
-        chapter_num_label.grid(row=5, column=0, padx=5, pady=5, sticky="e")
+        chapter_num_label.grid(row=4, column=0, padx=5, pady=5, sticky="e")
         chapter_num_entry = ctk.CTkEntry(
             self.params_frame,
             textvariable=self.chapter_num_var,
             width=80,
             font=("Microsoft YaHei", 12)
         )
-        chapter_num_entry.grid(row=5, column=1, padx=5, pady=5, sticky="w")
+        chapter_num_entry.grid(row=4, column=1, padx=5, pady=5, sticky="w")
 
         # 用户指导
         guide_label = ctk.CTkLabel(
@@ -614,7 +650,7 @@ class NovelGeneratorGUI:
             text="本章指导:",
             font=("Microsoft YaHei", 12)
         )
-        guide_label.grid(row=6, column=0, padx=5, pady=5, sticky="ne")
+        guide_label.grid(row=5, column=0, padx=5, pady=5, sticky="ne")
         self.user_guide_text = ctk.CTkTextbox(
             self.params_frame,
             width=200,
@@ -622,9 +658,9 @@ class NovelGeneratorGUI:
             wrap="word",
             font=("Microsoft YaHei", 12)
         )
-        self.user_guide_text.grid(row=6, column=1, padx=5, pady=5, sticky="nsew")
+        self.user_guide_text.grid(row=5, column=1, padx=5, pady=5, sticky="nsew")
 
-    # ------------------ 其他Tab的构建 ------------------ 
+    # ------------------ 其他Tab的构建 ------------------
     def build_setting_tab(self):
         self.setting_tab.rowconfigure(0, weight=0)
         self.setting_tab.rowconfigure(1, weight=1)
@@ -874,7 +910,7 @@ class NovelGeneratorGUI:
         else:
             messagebox.showinfo("提示", "已经是最后一章了。")
 
-    # ------------------ 配置管理 ------------------ 
+    # ------------------ 配置管理 ------------------
     def load_config_btn(self):
         cfg = load_config(self.config_file)
         if cfg:
@@ -890,11 +926,13 @@ class NovelGeneratorGUI:
             self.embedding_interface_format_var.set(cfg.get("embedding_interface_format", "OpenAI"))
             self.embedding_url_var.set(cfg.get("embedding_url", ""))
             self.embedding_model_name_var.set(cfg.get("embedding_model_name", ""))
+            self.embedding_retrieval_k_var.set(cfg.get("embedding_retrieval_k", 4))
 
             # Novel
             self.genre_var.set(cfg.get("genre", ""))
-            self.num_chapters_var.set(cfg.get("num_chapters", 10))
-            self.word_number_var.set(cfg.get("word_number", 3000))
+            # 安全转换，防止出现空值
+            self.num_chapters_var.set(int(cfg.get("num_chapters", 10) or 10))
+            self.word_number_var.set(int(cfg.get("word_number", 3000) or 3000))
             self.filepath_var.set(cfg.get("filepath", ""))
 
             # 主题
@@ -919,6 +957,8 @@ class NovelGeneratorGUI:
             "embedding_interface_format": self.embedding_interface_format_var.get(),
             "embedding_url": self.embedding_url_var.get(),
             "embedding_model_name": self.embedding_model_name_var.get(),
+            # 新增：向量库检索 K 值
+            "embedding_retrieval_k": self.embedding_retrieval_k_var.get(),
 
             # Novel
             "topic": self.topic_text.get("0.0", "end").strip(),
@@ -938,7 +978,7 @@ class NovelGeneratorGUI:
         if selected_dir:
             self.filepath_var.set(selected_dir)
 
-    # ------------------ 日志输出（主线程安全） ------------------ 
+    # ------------------ 日志输出（主线程安全） ------------------
     def log(self, message: str):
         self.log_text.configure(state="normal")
         self.log_text.insert("end", message + "\n")
@@ -954,7 +994,12 @@ class NovelGeneratorGUI:
     def enable_button_safe(self, btn):
         self.master.after(0, lambda: btn.configure(state="normal"))
 
-    # ------------------ 分步操作：生成设定、目录、章节草稿、定稿 ------------------ 
+    def handle_exception(self, context: str):
+        full_message = f"{context}\n{traceback.format_exc()}"
+        logging.error(full_message)
+        self.safe_log(full_message)
+
+    # ------------------ 分步操作：生成设定、目录、章节草稿、定稿 ------------------
     def generate_novel_setting_ui(self):
         """Step1. 生成小说设定（Novel_setting.txt）"""
         filepath = self.filepath_var.get().strip()
@@ -968,10 +1013,11 @@ class NovelGeneratorGUI:
                 api_key = self.api_key_var.get().strip()
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
+
                 topic = self.topic_text.get("0.0", "end").strip()
                 genre = self.genre_var.get().strip()
-                num_chapters = self.num_chapters_var.get()
-                word_number = self.word_number_var.get()
+                num_chapters = self.safe_get_int(self.num_chapters_var, 10)
+                word_number = self.safe_get_int(self.word_number_var, 3000)
                 temperature = self.temperature_var.get()
 
                 self.safe_log("开始生成小说设定...")
@@ -1007,7 +1053,7 @@ class NovelGeneratorGUI:
                 api_key = self.api_key_var.get().strip()
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
-                num_chapters = self.num_chapters_var.get()
+                num_chapters = self.safe_get_int(self.num_chapters_var, 10)
                 temperature = self.temperature_var.get()
 
                 self.safe_log("开始生成小说目录...")
@@ -1041,6 +1087,7 @@ class NovelGeneratorGUI:
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
+
                 novel_settings_file = os.path.join(filepath, "Novel_setting.txt")
                 novel_settings = read_file(novel_settings_file)
                 if not novel_settings.strip():
@@ -1054,8 +1101,8 @@ class NovelGeneratorGUI:
                 novel_directory_file = os.path.join(filepath, "Novel_directory.txt")
                 novel_directory = read_file(novel_directory_file)
 
-                chap_num = self.chapter_num_var.get()
-                word_number = self.word_number_var.get()
+                chap_num = self.safe_get_int(self.chapter_num_var, 1)
+                word_number = self.safe_get_int(self.word_number_var, 3000)
                 user_guidance = self.user_guide_text.get("0.0", "end").strip()
 
                 # 获取最近3章文本
@@ -1087,10 +1134,12 @@ class NovelGeneratorGUI:
                     novel_novel_directory=novel_directory,
                     filepath=filepath,
 
-                    # 传入 Embedding 的专用配置
+                    # Embedding 配置
                     interface_format=self.embedding_interface_format_var.get().strip(),
                     embedding_model_name=self.embedding_model_name_var.get().strip(),
                     embedding_base_url=self.embedding_url_var.get().strip(),
+                    # 新增：检索 K 值
+                    embedding_retrieval_k=self.safe_get_int(self.embedding_retrieval_k_var, 4)
                 )
                 if draft_text:
                     self.safe_log(f"✅ 第{chap_num}章草稿生成完成。请在左侧查看或编辑。")
@@ -1124,12 +1173,14 @@ class NovelGeneratorGUI:
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
+
                 interface_format = self.embedding_interface_format_var.get().strip()
                 embedding_model_name = self.embedding_model_name_var.get().strip()
                 embedding_base_url = self.embedding_url_var.get().strip()
+                embedding_api_key = self.embedding_api_key_var.get().strip()
 
-                chap_num = self.chapter_num_var.get()
-                word_number = self.word_number_var.get()
+                chap_num = self.safe_get_int(self.chapter_num_var, 1)
+                word_number = self.safe_get_int(self.word_number_var, 3000)
 
                 self.safe_log(f"开始定稿第{chap_num}章...")
                 finalize_chapter(
@@ -1143,7 +1194,7 @@ class NovelGeneratorGUI:
                     temperature=temperature,
                     filepath=filepath,
                     embedding_base_url=embedding_base_url,
-                    embedding_api_key=self.embedding_api_key_var.get().strip()
+                    embedding_api_key=embedding_api_key
                 )
                 self.safe_log(f"✅ 第{chap_num}章定稿完成（已更新全局摘要、角色状态、剧情要点、向量库）。")
 
@@ -1159,7 +1210,7 @@ class NovelGeneratorGUI:
 
         threading.Thread(target=task, daemon=True).start()
 
-    # ------------------ 一致性审校 ------------------ 
+    # ------------------ 一致性审校 ------------------
     def do_consistency_check(self):
         """使用审校Agent对最新章节进行简单一致性或冲突检查"""
         filepath = self.filepath_var.get().strip()
@@ -1185,7 +1236,7 @@ class NovelGeneratorGUI:
                 global_summary = read_file(global_summary_file)
                 plot_arcs = read_file(plot_arcs_file)
 
-                chap_num = self.chapter_num_var.get()
+                chap_num = self.safe_get_int(self.chapter_num_var, 1)
                 chap_file = os.path.join(filepath, "chapters", f"chapter_{chap_num}.txt")
                 chapter_text = read_file(chap_file)
 
@@ -1215,7 +1266,7 @@ class NovelGeneratorGUI:
 
         threading.Thread(target=task, daemon=True).start()
 
-    # ------------------ 导入知识库/清空向量库/查看剧情要点 ------------------ 
+    # ------------------ 导入知识库/清空向量库/查看剧情要点 ------------------
     def import_knowledge_handler(self):
         selected_file = filedialog.askopenfilename(
             title="选择要导入的知识库文件",
@@ -1233,7 +1284,7 @@ class NovelGeneratorGUI:
                         embedding_model_name=self.embedding_model_name_var.get().strip(),
                         file_path=selected_file,
                         embedding_base_url=self.embedding_url_var.get().strip(),
-                        filepath=self.filepath_var.get().strip()  # 用于本地化 vectorstore
+                        filepath=self.filepath_var.get().strip()
                     )
                     self.safe_log("✅ 知识库文件导入完成。")
                 except Exception:
@@ -1253,8 +1304,10 @@ class NovelGeneratorGUI:
         if first_confirm:
             second_confirm = messagebox.askyesno("二次确认", "你确定真的要删除所有向量数据吗？此操作不可恢复！")
             if second_confirm:
-                clear_vector_store(filepath)
-                self.log("已清空向量库。")
+                if clear_vector_store(filepath):
+                    self.log("已清空向量库。")
+                else:
+                    self.log(f"未能清空向量库。请关闭程序后前往{filepath}文件夹手动删除vectorstore目录。")
 
     def show_plot_arcs_ui(self):
         filepath = self.filepath_var.get().strip()
