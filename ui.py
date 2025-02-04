@@ -54,13 +54,14 @@ class NovelGeneratorGUI:
         self.loaded_config = load_config(self.config_file)
 
         # ========== 主要的属性变量 ==========
+
         # LLM 接口相关
         self.api_key_var = ctk.StringVar(value=self.loaded_config.get("api_key", ""))
         self.base_url_var = ctk.StringVar(value=self.loaded_config.get("base_url", "https://api.agicto.cn/v1"))
         self.interface_format_var = ctk.StringVar(value=self.loaded_config.get("interface_format", "OpenAI"))
         self.model_name_var = ctk.StringVar(value=self.loaded_config.get("model_name", "gpt-4o-mini"))
 
-        # 注意：使用 DoubleVar/IntVar 时，如果用户输入空值可能报错，需要在取值时做安全处理
+        # 仍然用 DoubleVar，但因为是 Slider，不会让用户手动清空文本，一般不会出现空字符串问题
         self.temperature_var = ctk.DoubleVar(value=self.loaded_config.get("temperature", 0.7))
 
         # Embedding 接口相关
@@ -69,21 +70,21 @@ class NovelGeneratorGUI:
         self.embedding_url_var = ctk.StringVar(value=self.loaded_config.get("embedding_url", ""))
         self.embedding_model_name_var = ctk.StringVar(value=self.loaded_config.get("embedding_model_name", ""))
 
-        # 新增 Embedding 检索的 k 值（默认为4）
-        self.embedding_retrieval_k_var = ctk.IntVar(value=self.loaded_config.get("embedding_retrieval_k", 4))
+        # ### CHANGED：将 IntVar 改为 StringVar，避免用户清空输入时抛错
+        self.embedding_retrieval_k_var = ctk.StringVar(value=str(self.loaded_config.get("embedding_retrieval_k", 4)))
 
         # 小说通用参数
         self.topic_default = self.loaded_config.get("topic", "")
         self.genre_var = ctk.StringVar(value=self.loaded_config.get("genre", "玄幻"))
 
-        # 章节数、每章字数等用 IntVar，但取值时需要安全转换
-        self.num_chapters_var = ctk.IntVar(value=self.loaded_config.get("num_chapters", 10))
-        self.word_number_var = ctk.IntVar(value=self.loaded_config.get("word_number", 3000))
+        # ### CHANGED：将章节数、每章字数改为 StringVar
+        self.num_chapters_var = ctk.StringVar(value=str(self.loaded_config.get("num_chapters", 10)))
+        self.word_number_var = ctk.StringVar(value=str(self.loaded_config.get("word_number", 3000)))
 
         self.filepath_var = ctk.StringVar(value=self.loaded_config.get("filepath", ""))
 
-        # 当前要处理的章节号
-        self.chapter_num_var = ctk.IntVar(value=1)
+        # ### CHANGED：章节号也改为 StringVar
+        self.chapter_num_var = ctk.StringVar(value="1")
 
         # ========== 主容器使用 TabView ==========
         self.tabview = ctk.CTkTabview(self.master, width=1200, height=800)
@@ -105,12 +106,17 @@ class NovelGeneratorGUI:
         self.build_summary_tab()
         self.build_chapters_tab()  # 新增
 
-    # ------------------ 工具方法：安全获取 IntVar ------------------
-    def safe_get_int(self, int_var, default=0):
+    # ------------------ 工具方法：安全获取 IntVar (现已兼容 StringVar) ------------------
+    def safe_get_int(self, var, default=1):
+        """
+        尝试把 StringVar 或 IntVar 中的值转换为 int；
+        若失败则将其重置为 default 并返回 default。
+        """
         try:
-            return int(int_var.get())
-        except Exception:
-            int_var.set(default)
+            val_str = str(var.get()).strip()
+            return int(val_str)
+        except:
+            var.set(str(default))
             return default
 
     # ------------------ 主功能 Tab ------------------
@@ -478,7 +484,6 @@ class NovelGeneratorGUI:
         )
         emb_model_name_entry.grid(row=3, column=1, padx=5, pady=5, sticky="nsew")
 
-        # 新增：检索 K 值设置
         emb_retrieval_k_label = ctk.CTkLabel(
             self.embeddings_config_tab,
             text="Retrieval Top-K:",
@@ -571,7 +576,6 @@ class NovelGeneratorGUI:
         )
         num_chapters_label.grid(row=row_for_chapter_and_word, column=0, padx=5, pady=5, sticky="e")
 
-        # 此处放一个小的Frame，用于在同一行放两个输入框
         ch_word_frame = ctk.CTkFrame(self.params_frame)
         ch_word_frame.grid(row=row_for_chapter_and_word, column=1, padx=5, pady=5, sticky="ew")
         ch_word_frame.columnconfigure(0, weight=0)
@@ -926,18 +930,20 @@ class NovelGeneratorGUI:
             self.embedding_interface_format_var.set(cfg.get("embedding_interface_format", "OpenAI"))
             self.embedding_url_var.set(cfg.get("embedding_url", ""))
             self.embedding_model_name_var.set(cfg.get("embedding_model_name", ""))
-            self.embedding_retrieval_k_var.set(cfg.get("embedding_retrieval_k", 4))
+            # ### CHANGED：用字符串形式设值
+            self.embedding_retrieval_k_var.set(str(cfg.get("embedding_retrieval_k", 4)))
 
             # Novel
             self.genre_var.set(cfg.get("genre", ""))
-            # 安全转换，防止出现空值
-            self.num_chapters_var.set(int(cfg.get("num_chapters", 10) or 10))
-            self.word_number_var.set(int(cfg.get("word_number", 3000) or 3000))
+
+            # ### CHANGED：用字符串形式设值
+            self.num_chapters_var.set(str(cfg.get("num_chapters", 10)))
+            self.word_number_var.set(str(cfg.get("word_number", 3000)))
             self.filepath_var.set(cfg.get("filepath", ""))
 
-            # 主题
+            topic_value = cfg.get("topic", "")
             self.topic_text.delete("0.0", "end")
-            self.topic_text.insert("0.0", cfg.get("topic", ""))
+            self.topic_text.insert("0.0", topic_value)
 
             self.log("已加载配置。")
         else:
@@ -957,14 +963,13 @@ class NovelGeneratorGUI:
             "embedding_interface_format": self.embedding_interface_format_var.get(),
             "embedding_url": self.embedding_url_var.get(),
             "embedding_model_name": self.embedding_model_name_var.get(),
-            # 新增：向量库检索 K 值
-            "embedding_retrieval_k": self.embedding_retrieval_k_var.get(),
+            "embedding_retrieval_k": self.safe_get_int(self.embedding_retrieval_k_var, 4),
 
             # Novel
             "topic": self.topic_text.get("0.0", "end").strip(),
             "genre": self.genre_var.get(),
-            "num_chapters": self.num_chapters_var.get(),
-            "word_number": self.word_number_var.get(),
+            "num_chapters": self.safe_get_int(self.num_chapters_var, 10),
+            "word_number": self.safe_get_int(self.word_number_var, 3000),
             "filepath": self.filepath_var.get()
         }
         if save_config(config_data, self.config_file):
