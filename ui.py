@@ -418,7 +418,7 @@ class NovelGeneratorGUI:
     def build_embeddings_config_tab(self):
         def on_embedding_interface_changed(new_value):
             if new_value == "Ollama":
-                self.embedding_url_var.set("http://localhost:11434/v1")
+                self.embedding_url_var.set("http://localhost:11434/api")
             elif new_value == "ML Studio":
                 self.embedding_url_var.set("http://localhost:1234/v1")
             elif new_value == "OpenAI":

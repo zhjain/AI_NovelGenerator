@@ -599,6 +599,7 @@ def generate_chapter_draft(
         global_summary=global_summary,
         chapter_outline=chapter_outline,
         word_number=word_number,
+        novel_number=novel_number,
         chapter_title=chapter_title,
         chapter_brief=chapter_brief
     )
