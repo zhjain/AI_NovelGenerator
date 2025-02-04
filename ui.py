@@ -1188,6 +1188,12 @@ class NovelGeneratorGUI:
                 word_number = self.safe_get_int(self.word_number_var, 3000)
 
                 self.safe_log(f"开始定稿第{chap_num}章...")
+                chapters_dir = os.path.join(filepath, "chapters")
+                chapter_file = os.path.join(chapters_dir, f"chapter_{chap_num}.txt")
+                edited_text = self.chapter_result.get("0.0", "end").strip()
+                clear_file_content(chapter_file)
+                save_string_to_txt(edited_text, chapter_file)
+
                 finalize_chapter(
                     novel_number=chap_num,
                     word_number=word_number,
