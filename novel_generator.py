@@ -3,13 +3,13 @@
 import os
 import logging
 import re
+import time
 import traceback
 from typing import List, Optional
 
 # langchain 相关
-from langchain_openai import ChatOpenAI
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_openai import ChatOpenAI,OpenAIEmbeddings
+from langchain_chroma import Chroma
 from chromadb.config import Settings
 from langchain.docstore.document import Document
 
@@ -105,7 +105,6 @@ def create_embeddings_object(
 ):
     """
     根据 embedding_interface_format，选择 Ollama 或 OpenAIEmbeddings 等不同后端。
-    base_url: 在 OpenAI 或 ML Studio 时，需要自动补'/v1'；Ollama 则通常是 http://localhost:11434/v1
     """
     if is_using_ollama_api(interface_format):
         fixed_url = base_url.rstrip("/")
@@ -114,7 +113,6 @@ def create_embeddings_object(
             base_url=fixed_url
         )
     else:
-        # OpenAI 或 ML Studio 均使用 OpenAIEmbeddings，注意 base_url 可能需要 ensure /v1
         fixed_url = ensure_openai_base_url_has_v1(base_url)
         return OpenAIEmbeddings(
             openai_api_key=api_key,
@@ -126,23 +124,35 @@ def create_embeddings_object(
 # ============ 向量库相关操作 ============
 def clear_vector_store(filepath: str):
     """
-    清空本地向量库（删除 filepath/vectorstore 文件夹内的所有内容）
+    不删除文件，仅通过 Chroma API 移除集合数据（保留空目录）
     """
+    from chromadb import Client
+
     store_dir = get_vectorstore_dir(filepath)
-    if os.path.exists(store_dir):
-        import shutil
-        try:
-            for filename in os.listdir(store_dir):
-                file_path = os.path.join(store_dir, filename)
-                if os.path.isfile(file_path) or os.path.islink(file_path):
-                    os.unlink(file_path)
-                elif os.path.isdir(file_path):
-                    shutil.rmtree(file_path)
-            logging.info("Local vector store has been cleared.")
-        except Exception:
-            logging.warning(f"Failed to clear vector store:\n{traceback.format_exc()}")
-    else:
+    if not os.path.exists(store_dir):
         logging.info("No vector store found to clear.")
+        return
+
+    try:
+        client = Client(settings=Settings(
+            persist_directory=store_dir,
+            allow_reset=True  # 允许重置操作
+        ))
+        print(client.list_collections())
+        
+        if client.list_collections():
+            client.delete_collection(name="novel_collection")
+            logging.info("Collection 'novel_collection' deleted via API.")
+        
+        client.reset()
+        
+    except Exception as e:
+        logging.error(f"API-based clear failed: {str(e)}")
+        traceback.print_exc()
+    finally:
+        # 显式关闭客户端释放资源
+        if 'client' in locals():
+            del client
 
 
 def init_vector_store(
@@ -169,9 +179,10 @@ def init_vector_store(
     vectorstore = Chroma.from_documents(
         documents,
         embedding=embeddings,
-        persist_directory=store_dir
+        persist_directory=store_dir,
+        client_settings=Settings(anonymized_telemetry=False),
+        collection_name="novel_collection"
     )
-    vectorstore.persist()
     return vectorstore
 
 
@@ -198,7 +209,9 @@ def load_vector_store(
     )
     return Chroma(
         persist_directory=store_dir,
-        embedding_function=embeddings
+        embedding_function=embeddings,
+        client_settings=Settings(anonymized_telemetry=False),
+        collection_name="novel_collection"
     )
 
 
@@ -234,7 +247,6 @@ def update_vector_store(
 
     new_doc = Document(page_content=str(new_chapter))
     store.add_documents([new_doc])
-    store.persist()
     logging.info("Vector store updated with the new chapter.")
 
 
@@ -481,6 +493,8 @@ def generate_chapter_draft(
         queries.append(user_guidance)
     if chapter_brief.strip():
         queries.append(chapter_brief)
+    if recent_chapters_summary.strip():
+        queries.append(recent_chapters_summary)
     queries.append("回顾剧情")
 
     relevant_context = ""
@@ -702,7 +716,7 @@ def import_knowledge_file(
     # 若向量库不存在则初始化，否则追加
     store = load_vector_store(
         api_key=api_key,
-        base_url=base_url if base_url else "http://localhost:11434/v1",  # 默认给个地址
+        base_url=base_url if base_url else "http://localhost:11434/v1",
         interface_format=interface_format,
         embedding_model_name=embedding_model_name,
         filepath=filepath
@@ -720,7 +734,6 @@ def import_knowledge_file(
     else:
         docs = [Document(page_content=str(p)) for p in paragraphs]
         store.add_documents(docs)
-        store.persist()
     logging.info("知识库文件已成功导入至向量库。")
 
 

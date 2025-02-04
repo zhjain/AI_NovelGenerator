@@ -240,7 +240,7 @@ class NovelGeneratorGUI:
         self.config_frame.columnconfigure(0, weight=1)
 
         self.build_config_tabview()       # LLM、Embedding等配置
-        self.build_main_buttons_area()    # 保存/加载配置
+        self.build_main_buttons_area()    # 保存/加载配置按钮
 
         # 2) 小说参数
         self.build_novel_params_area(start_row=1)
@@ -1233,7 +1233,7 @@ class NovelGeneratorGUI:
                         embedding_model_name=self.embedding_model_name_var.get().strip(),
                         file_path=selected_file,
                         embedding_base_url=self.embedding_url_var.get().strip(),
-                        filepath=self.filepath_var.get().strip()  # 新增，用于本地化 vectorstore
+                        filepath=self.filepath_var.get().strip()  # 用于本地化 vectorstore
                     )
                     self.safe_log("✅ 知识库文件导入完成。")
                 except Exception:
