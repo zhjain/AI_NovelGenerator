@@ -123,10 +123,8 @@ def create_embeddings_object(
 # ============ 向量库相关操作 ============
 def clear_vector_store(filepath: str) -> bool:
     """
-    通过 Chroma API 移除集合数据后尝试删除整个 vectorstore 目录。
     返回值表示是否成功清空向量库。
     """
-    from chromadb import Client
     import shutil
 
     store_dir = get_vectorstore_dir(filepath)
@@ -135,19 +133,6 @@ def clear_vector_store(filepath: str) -> bool:
         return False
 
     try:
-        client = Client(settings=Settings(
-            persist_directory=store_dir,
-            allow_reset=True  # 允许重置操作
-        ))
-        collections = client.list_collections()
-        if collections:
-            client.delete_collection(name="novel_collection")
-            logging.info("Collection 'novel_collection' deleted via API.")
-
-        client.reset()
-        logging.info("Client reset successfully.")
-
-        # 直接删除整个 vectorstore 目录
         if os.path.exists(store_dir):
             shutil.rmtree(store_dir)
             logging.info(f"Vector store directory '{store_dir}' removed.")
@@ -156,13 +141,6 @@ def clear_vector_store(filepath: str) -> bool:
         logging.error(f"程序正在运行，无法删除，请在程序关闭后手动前往 {store_dir} 删除目录。\n {str(e)}")
         traceback.print_exc()
         return False
-    finally:
-        if 'client' in locals():
-            try:
-                del client
-            except AttributeError:
-                logging.warning("Client object not found to delete.")
-
 
 def init_vector_store(
     api_key: str,
@@ -245,6 +223,7 @@ def split_text_for_vectorstore(chapter_text: str,
         return []
 
     nltk.download('punkt', quiet=True)
+    nltk.download('punkt_tab', quiet=True)
     sentences = nltk.sent_tokenize(chapter_text)
     if not sentences:
         return []
