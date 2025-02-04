@@ -27,11 +27,8 @@ def get_chapter_info_from_directory(novel_directory_content: str, chapter_number
         if match:
             chap_num = int(match.group(1))
             if chap_num == chapter_number:
-                # group(2) 可能是标题及简述的混合
                 full_title = match.group(2).strip()
-                # 这里假设用 '-' 进一步区分“标题 - 简述”，也可能用户没写“ - ”
                 if ' - ' in full_title:
-                    # 根据你的目录格式自由处理
                     parts = full_title.split(' - ', 1)
                     return {
                         "chapter_title": parts[0].strip(),

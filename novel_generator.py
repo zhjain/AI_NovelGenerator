@@ -8,7 +8,7 @@ import traceback
 from typing import List, Optional
 
 # langchain 相关
-from langchain_openai import ChatOpenAI,OpenAIEmbeddings
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_chroma import Chroma
 from chromadb.config import Settings
 from langchain.docstore.document import Document
@@ -51,6 +51,10 @@ def remove_think_tags(text: str) -> str:
     """移除 <think>...</think> 包裹的内容"""
     return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
 
+def debug_log(prompt: str, response_content: str):
+    logging.info(f"\n[#########################################  Prompt  #########################################]\n {prompt}\n")
+    logging.info(f"\n[######################################### Response #########################################]\n {response_content}\n")
+
 def invoke_with_cleaning(model: ChatOpenAI, prompt: str) -> str:
     """通用封装：调用模型并移除 <think>...</think> 文本，记录日志后返回"""
     response = model.invoke(prompt)
@@ -60,11 +64,6 @@ def invoke_with_cleaning(model: ChatOpenAI, prompt: str) -> str:
     cleaned_text = remove_think_tags(response.content)
     debug_log(prompt, cleaned_text)
     return cleaned_text.strip()
-
-def debug_log(prompt: str, response_content: str):
-    logging.info(f"\n[Prompt >>>] {prompt}\n")
-    logging.info(f"[Response >>>] {response_content}\n")
-
 
 def ensure_openai_base_url_has_v1(url: str) -> str:
     """
@@ -78,7 +77,6 @@ def ensure_openai_base_url_has_v1(url: str) -> str:
         if '/v1' not in url:
             url = url.rstrip('/') + '/v1'
     return url
-
 
 def is_using_ollama_api(interface_format: str) -> bool:
     return interface_format.lower() == "ollama"
@@ -113,6 +111,7 @@ def create_embeddings_object(
             base_url=fixed_url
         )
     else:
+        # OpenAI 或 ML Studio 均使用 OpenAIEmbeddings，注意 base_url 可能需要 ensure /v1
         fixed_url = ensure_openai_base_url_has_v1(base_url)
         return OpenAIEmbeddings(
             openai_api_key=api_key,
@@ -122,38 +121,26 @@ def create_embeddings_object(
 
 
 # ============ 向量库相关操作 ============
-def clear_vector_store(filepath: str):
+def clear_vector_store(filepath: str) -> bool:
     """
-    不删除文件，仅通过 Chroma API 移除集合数据（保留空目录）
+    返回值表示是否成功清空向量库。
     """
-    from chromadb import Client
+    import shutil
 
     store_dir = get_vectorstore_dir(filepath)
     if not os.path.exists(store_dir):
         logging.info("No vector store found to clear.")
-        return
+        return False
 
     try:
-        client = Client(settings=Settings(
-            persist_directory=store_dir,
-            allow_reset=True  # 允许重置操作
-        ))
-        print(client.list_collections())
-        
-        if client.list_collections():
-            client.delete_collection(name="novel_collection")
-            logging.info("Collection 'novel_collection' deleted via API.")
-        
-        client.reset()
-        
+        if os.path.exists(store_dir):
+            shutil.rmtree(store_dir)
+            logging.info(f"Vector store directory '{store_dir}' removed.")
+        return True
     except Exception as e:
-        logging.error(f"API-based clear failed: {str(e)}")
+        logging.error(f"程序正在运行，无法删除，请在程序关闭后手动前往 {store_dir} 删除目录。\n {str(e)}")
         traceback.print_exc()
-    finally:
-        # 显式关闭客户端释放资源
-        if 'client' in locals():
-            del client
-
+        return False
 
 def init_vector_store(
     api_key: str,
@@ -215,6 +202,65 @@ def load_vector_store(
     )
 
 
+def split_by_length(text: str, max_length: int = 500) -> List[str]:
+    segments = []
+    start_idx = 0
+    while start_idx < len(text):
+        end_idx = min(start_idx + max_length, len(text))
+        segment = text[start_idx:end_idx]
+        segments.append(segment.strip())
+        start_idx = end_idx
+    return segments
+
+
+def split_text_for_vectorstore(chapter_text: str,
+                               max_length: int = 500,
+                               similarity_threshold: float = 0.7) -> List[str]:
+    """
+    对新的章节文本进行分段后，再用于存入向量库。
+    """
+    if not chapter_text.strip():
+        return []
+
+    nltk.download('punkt', quiet=True)
+    nltk.download('punkt_tab', quiet=True)
+    sentences = nltk.sent_tokenize(chapter_text)
+    if not sentences:
+        return []
+
+    # 先对相近句子进行合并
+    model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+    embeddings = model.encode(sentences)
+
+    merged_paragraphs = []
+    current_sentences = [sentences[0]]
+    current_embedding = embeddings[0]
+
+    for i in range(1, len(sentences)):
+        sim = cosine_similarity([current_embedding], [embeddings[i]])[0][0]
+        if sim >= similarity_threshold:
+            current_sentences.append(sentences[i])
+            current_embedding = (current_embedding + embeddings[i]) / 2.0
+        else:
+            merged_paragraphs.append(" ".join(current_sentences))
+            current_sentences = [sentences[i]]
+            current_embedding = embeddings[i]
+
+    if current_sentences:
+        merged_paragraphs.append(" ".join(current_sentences))
+
+    # 再对合并好的段落做 max_length 切分
+    final_segments = []
+    for para in merged_paragraphs:
+        if len(para) > max_length:
+            sub_segments = split_by_length(para, max_length=max_length)
+            final_segments.extend(sub_segments)
+        else:
+            final_segments.append(para)
+
+    return final_segments
+
+
 def update_vector_store(
     api_key: str,
     base_url: str,
@@ -226,6 +272,11 @@ def update_vector_store(
     """
     将最新章节文本插入到向量库中。若库不存在则初始化。
     """
+    splitted_texts = split_text_for_vectorstore(new_chapter)
+    if not splitted_texts:
+        logging.warning("No valid text to insert into vector store. Skipping.")
+        return
+
     store = load_vector_store(
         api_key=api_key,
         base_url=base_url,
@@ -240,14 +291,14 @@ def update_vector_store(
             base_url=base_url,
             interface_format=interface_format,
             embedding_model_name=embedding_model_name,
-            texts=[new_chapter],
+            texts=splitted_texts,
             filepath=filepath
         )
         return
 
-    new_doc = Document(page_content=str(new_chapter))
-    store.add_documents([new_doc])
-    logging.info("Vector store updated with the new chapter.")
+    docs = [Document(page_content=str(t)) for t in splitted_texts]
+    store.add_documents(docs)
+    logging.info("Vector store updated with the new chapter splitted segments.")
 
 
 def get_relevant_context_from_vector_store(
@@ -480,37 +531,38 @@ def generate_chapter_draft(
     filepath: str,
     interface_format: str,
     embedding_model_name: str,
-    embedding_base_url: str
+    embedding_base_url: str,
+    embedding_retrieval_k: int = 4
 ) -> str:
     # 1) 根据目录解析标题、简介
     chapter_info = get_chapter_info_from_directory(novel_novel_directory, novel_number)
     chapter_title = chapter_info["chapter_title"]
     chapter_brief = chapter_info["chapter_brief"]
 
-    # 2) 从向量库检索上下文
-    queries = []
+    # 合并要检索的文本（用户指导 + 章节简介 + 最近摘要）
+    combined_query_parts = []
     if user_guidance.strip():
-        queries.append(user_guidance)
+        combined_query_parts.append(user_guidance)
     if chapter_brief.strip():
-        queries.append(chapter_brief)
+        combined_query_parts.append(chapter_brief)
     if recent_chapters_summary.strip():
-        queries.append(recent_chapters_summary)
-    queries.append("回顾剧情")
+        combined_query_parts.append(recent_chapters_summary)
+    # 额外加一个关键字
+    combined_query_parts.append("回顾剧情")
 
-    relevant_context = ""
-    for q in queries:
-        partial_context = get_relevant_context_from_vector_store(
-            api_key=api_key,
-            base_url=embedding_base_url if embedding_base_url else base_url,
-            query=q,
-            interface_format=interface_format,
-            embedding_model_name=embedding_model_name,
-            filepath=filepath,
-            k=2
-        )
-        if partial_context.strip():
-            relevant_context += "\n" + partial_context
-    if not relevant_context:
+    merged_query_str = "\n".join(combined_query_parts)
+
+    # 2) 从向量库检索上下文
+    relevant_context = get_relevant_context_from_vector_store(
+        api_key=api_key,
+        base_url=embedding_base_url if embedding_base_url else base_url,
+        query=merged_query_str,
+        interface_format=interface_format,
+        embedding_model_name=embedding_model_name,
+        filepath=filepath,
+        k=embedding_retrieval_k
+    )
+    if not relevant_context.strip():
         relevant_context = "暂无相关内容。"
 
     # 3) 生成本章大纲
@@ -547,6 +599,7 @@ def generate_chapter_draft(
         global_summary=global_summary,
         chapter_outline=chapter_outline,
         word_number=word_number,
+        novel_number=novel_number,
         chapter_title=chapter_title,
         chapter_brief=chapter_brief
     )
@@ -615,6 +668,7 @@ def finalize_chapter(
         base_url=ensure_openai_base_url_has_v1(base_url),
         temperature=temperature
     )
+
     def update_global_summary(chapter_text: str, old_summary: str) -> str:
         prompt = summary_prompt.format(
             chapter_text=chapter_text,
@@ -690,59 +744,13 @@ def enrich_chapter_text(
 
 
 # ============ 导入外部知识文本到向量库 ============
-def import_knowledge_file(
-    api_key: str,
-    base_url: str,
-    interface_format: str,
-    embedding_model_name: str,
-    file_path: str,
-    embedding_base_url: str,
-    filepath: str
-):
-    logging.info(f"开始导入知识库文件: {file_path}, 接口格式: {interface_format}, 模型: {embedding_model_name}")
-    if not os.path.exists(file_path):
-        logging.warning(f"知识库文件不存在: {file_path}")
-        return
-
-    content = read_file(file_path)
-    if not content.strip():
-        logging.warning("知识库文件内容为空。")
-        return
-
-    nltk.download('punkt', quiet=True)
-
-    paragraphs = advanced_split_content(content)
-
-    # 若向量库不存在则初始化，否则追加
-    store = load_vector_store(
-        api_key=api_key,
-        base_url=base_url if base_url else "http://localhost:11434/v1",
-        interface_format=interface_format,
-        embedding_model_name=embedding_model_name,
-        filepath=filepath
-    )
-    if not store:
-        logging.info("Vector store does not exist. Initializing a new one for knowledge import...")
-        init_vector_store(
-            api_key=api_key,
-            base_url=base_url if base_url else "http://localhost:11434/v1",
-            interface_format=interface_format,
-            embedding_model_name=embedding_model_name,
-            texts=paragraphs,
-            filepath=filepath
-        )
-    else:
-        docs = [Document(page_content=str(p)) for p in paragraphs]
-        store.add_documents(docs)
-    logging.info("知识库文件已成功导入至向量库。")
-
-
 def advanced_split_content(content: str,
                            similarity_threshold: float = 0.7,
                            max_length: int = 500) -> List[str]:
     """
     将文本先按句子切分，然后根据语义相似度进行合并，最后按 max_length 二次切分。
     """
+    nltk.download('punkt', quiet=True)
     sentences = nltk.sent_tokenize(content)
     if not sentences:
         return []
@@ -777,13 +785,46 @@ def advanced_split_content(content: str,
 
     return final_segments
 
+def import_knowledge_file(
+    api_key: str,
+    base_url: str,
+    interface_format: str,
+    embedding_model_name: str,
+    file_path: str,
+    embedding_base_url: str,
+    filepath: str
+):
+    logging.info(f"开始导入知识库文件: {file_path}, 接口格式: {interface_format}, 模型: {embedding_model_name}")
+    if not os.path.exists(file_path):
+        logging.warning(f"知识库文件不存在: {file_path}")
+        return
 
-def split_by_length(text: str, max_length: int = 500) -> List[str]:
-    segments = []
-    start_idx = 0
-    while start_idx < len(text):
-        end_idx = min(start_idx + max_length, len(text))
-        segment = text[start_idx:end_idx]
-        segments.append(segment.strip())
-        start_idx = end_idx
-    return segments
+    content = read_file(file_path)
+    if not content.strip():
+        logging.warning("知识库文件内容为空。")
+        return
+
+    paragraphs = advanced_split_content(content)
+
+    # 若向量库不存在则初始化，否则追加
+    store = load_vector_store(
+        api_key=api_key,
+        base_url=base_url if base_url else "http://localhost:11434/v1",
+        interface_format=interface_format,
+        embedding_model_name=embedding_model_name,
+        filepath=filepath
+    )
+    if not store:
+        logging.info("Vector store does not exist. Initializing a new one for knowledge import...")
+        init_vector_store(
+            api_key=api_key,
+            base_url=base_url if base_url else "http://localhost:11434/v1",
+            interface_format=interface_format,
+            embedding_model_name=embedding_model_name,
+            texts=paragraphs,
+            filepath=filepath
+        )
+    else:
+        docs = [Document(page_content=str(p)) for p in paragraphs]
+        store.add_documents(docs)
+    logging.info("知识库文件已成功导入至向量库。")

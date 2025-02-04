@@ -44,7 +44,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='AI_NovelGenerator_V1.3.0',
+    name='AI_NovelGenerator_V1.3.2',
     debug=True,
     bootloader_ignore_signals=False,
     strip=False,
@@ -65,5 +65,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='AI_NovelGenerator_V1.3.0'
+    name='AI_NovelGenerator_V1.3.2'
 )
