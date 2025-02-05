@@ -21,13 +21,19 @@ def parse_chapter_blueprint(blueprint_text: str):
     chunks = re.split(r'\n\s*\n', blueprint_text.strip())
     results = []
 
-    chapter_number_pattern = re.compile(r'^第\s*(\d+)\s*章\s*-\s*\[(.*?)\]')  # 捕获章号与标题
-    role_pattern           = re.compile(r'^本章定位：\s*(.*)$')
-    purpose_pattern        = re.compile(r'^核心作用：\s*(.*)$')
-    suspense_pattern       = re.compile(r'^悬念密度：\s*(.*)$')
-    foreshadow_pattern     = re.compile(r'^伏笔操作：\s*(.*)$')
-    twist_pattern          = re.compile(r'^认知颠覆：\s*(.*)$')
-    summary_pattern        = re.compile(r'^本章简述：\s*\[(.*)\]$')
+    # 兼容是否使用方括号包裹章节标题
+    # 例如：
+    #   第1章 - 紫极光下的预兆
+    # 或
+    #   第1章 - [紫极光下的预兆]
+    chapter_number_pattern = re.compile(r'^第\s*(\d+)\s*章\s*-\s*\[?(.*?)\]?$')
+
+    role_pattern     = re.compile(r'^本章定位：\s*\[?(.*)\]?$')
+    purpose_pattern  = re.compile(r'^核心作用：\s*\[?(.*)\]?$')
+    suspense_pattern = re.compile(r'^悬念密度：\s*\[?(.*)\]?$')
+    foreshadow_pattern = re.compile(r'^伏笔操作：\s*\[?(.*)\]?$')
+    twist_pattern       = re.compile(r'^认知颠覆：\s*\[?(.*)\]?$')
+    summary_pattern = re.compile(r'^本章简述：\s*\[?(.*)\]?$')
 
     for chunk in chunks:
         lines = chunk.strip().splitlines()
@@ -44,9 +50,9 @@ def parse_chapter_blueprint(blueprint_text: str):
         chapter_summary  = ""
 
         # 先匹配第一行（或前几行），找到章号和标题
-        header_match = chapter_number_pattern.match(lines[0].strip()) if lines else None
+        header_match = chapter_number_pattern.match(lines[0].strip())
         if not header_match:
-            # 不符合格式，跳过
+            # 不符合“第X章 - 标题”的格式，跳过
             continue
 
         chapter_number = int(header_match.group(1))

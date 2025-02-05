@@ -431,8 +431,6 @@ def Chapter_blueprint_generate(
         return
 
     # 从内容中尽量提取 number_of_chapters
-    # 如果之前已经存储了 number_of_chapters，可以在外面传入，这里做简化：
-    # 这里用正则或者其他逻辑提取，但演示时直接写 10 也可
     match_chaps = re.search(r'约(\d+)章', architecture_text)
     if match_chaps:
         number_of_chapters = int(match_chaps.group(1))
@@ -440,10 +438,7 @@ def Chapter_blueprint_generate(
         number_of_chapters = 10  # fallback
 
     # 提取三幕式文本
-    # 在写入时，我们将 4) 三幕式情节架构 作为传给 prompt 的核心
-    # 这里做一个简易匹配
     plot_arch_text = ""
-    # 假设 "#=== 4) 三幕式情节架构 ===" 是分隔点
     pat_plot = r'#=== 4\) 三幕式情节架构 ===\n([\s\S]+)$'
     m = re.search(pat_plot, architecture_text)
     if m:
@@ -556,7 +551,6 @@ def update_plot_arcs(
 
 
 # ========== 3) 生成章节草稿 ==========
-
 def generate_chapter_draft(
     api_key: str,
     base_url: str,
@@ -570,6 +564,10 @@ def generate_chapter_draft(
     key_items: str,
     scene_location: str,
     time_constraint: str,
+    embedding_api_key: str,
+    embedding_url: str,
+    embedding_interface_format: str,
+    embedding_model_name: str,
     embedding_retrieval_k: int = 2
 ) -> str:
     """
@@ -577,7 +575,7 @@ def generate_chapter_draft(
     - novel_architecture 取自 Novel_architecture.txt
     - blueprint 取自 Novel_directory.txt
     - global_summary, character_state 分别取自全局摘要、角色状态文件
-    - 向量库检索上下文
+    - 从向量库检索上下文（embedding_*参数）
     - 用户还可以额外提供四个可选元素：核心人物、关键道具、空间坐标、时间压力
     """
 
@@ -609,25 +607,21 @@ def generate_chapter_draft(
     recent_3_texts = get_last_n_chapters_text(chapters_dir, novel_number, n=3)
     merged_query_str = "回顾剧情：\n" + "\n".join(recent_3_texts) + "\n" + user_guidance
 
-    # 4) 检索向量库上下文
+    # 4) 检索向量库上下文 (使用embedding_*参数)
     relevant_context = get_relevant_context_from_vector_store(
-        api_key=api_key,
-        base_url=base_url,
+        api_key=embedding_api_key,
+        base_url=embedding_url,
         query=merged_query_str,
-        embedding_model_name=model_name,
+        interface_format=embedding_interface_format,
+        embedding_model_name=embedding_model_name,
         filepath=filepath,
         k=embedding_retrieval_k
     )
-
     if not relevant_context.strip():
         relevant_context = "（无检索到的上下文）"
 
-    # 5) 构造prompt，调用 scene_dynamics_prompt
-    #   在这里，我们拆分架构文本，以便给模型提供：
-    #   - “世界观”与“小说设定”可以从 arch_file 中的相应片段读取
-    #   这里为了简化，直接把 novel_architecture_text 整体塞入 novel_setting
-    #   也可更精细地拆分 "#=== 3) 世界观 ===" 片段给 world_building
-    #   下方仅作示例。
+    # 5) 构造prompt
+    # 拆分 world_building_text, novel_architecture_text 等等
     world_building_text = ""
     match_world = re.search(r'#=== 3\) 世界观 ===\n([\s\S]+?)\n#===', novel_architecture_text)
     if match_world:
@@ -658,9 +652,8 @@ def generate_chapter_draft(
         character_state=character_state_text
     )
 
-    # 因为我们还想让模型了解向量库检索到的上下文，可以合并到最后
+    # 合并检索到的上下文和用户指导
     prompt_text += f"\n\n【检索到的上下文】\n{relevant_context}"
-    # 也可合并用户指导
     prompt_text += f"\n\n【用户指导】\n{user_guidance}\n"
 
     model = ChatOpenAI(
@@ -674,8 +667,7 @@ def generate_chapter_draft(
     if not chapter_content.strip():
         logging.warning("Generated chapter draft is empty.")
 
-    # 6) 写入 chapters 目录
-    chapters_dir = os.path.join(filepath, "chapters")
+    # 6) 写入 chapters
     os.makedirs(chapters_dir, exist_ok=True)
     chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
 
@@ -695,6 +687,9 @@ def finalize_chapter(
     model_name: str,
     temperature: float,
     filepath: str,
+    embedding_api_key: str,
+    embedding_url: str,
+    embedding_interface_format: str,
     embedding_model_name: str
 ):
     """
@@ -707,7 +702,7 @@ def finalize_chapter(
         logging.warning(f"Chapter {novel_number} is empty, cannot finalize.")
         return
 
-    # 如果长度比目标少很多，可考虑在此扩写
+    # 若篇幅过短，可尝试扩写
     if len(chapter_text) < 0.6 * word_number:
         chapter_text = enrich_chapter_text(chapter_text, word_number, api_key, base_url, model_name, temperature)
         clear_file_content(chapter_file)
@@ -750,12 +745,13 @@ def finalize_chapter(
     clear_file_content(character_state_file)
     save_string_to_txt(new_char_state, character_state_file)
 
-    # 3) 更新向量库
+    # 3) 更新向量库 (embedding相关)
     update_vector_store(
-        api_key=api_key,
-        base_url=base_url,
+        api_key=embedding_api_key,
+        base_url=embedding_url,
         new_chapter=chapter_text,
-        model_name=embedding_model_name,  # 用于embedding
+        interface_format=embedding_interface_format,
+        embedding_model_name=embedding_model_name,
         filepath=filepath
     )
 
@@ -827,15 +823,14 @@ def advanced_split_content(content: str,
     return final_segments
 
 def import_knowledge_file(
-    api_key: str,
-    base_url: str,
-    interface_format: str,
+    embedding_api_key: str,
+    embedding_url: str,
+    embedding_interface_format: str,
     embedding_model_name: str,
     file_path: str,
-    embedding_base_url: str,
     filepath: str
 ):
-    logging.info(f"开始导入知识库文件: {file_path}, 接口格式: {interface_format}, 模型: {embedding_model_name}")
+    logging.info(f"开始导入知识库文件: {file_path}, 接口格式: {embedding_interface_format}, 模型: {embedding_model_name}")
     if not os.path.exists(file_path):
         logging.warning(f"知识库文件不存在: {file_path}")
         return
@@ -847,20 +842,20 @@ def import_knowledge_file(
 
     paragraphs = advanced_split_content(content)
 
-    # 若向量库不存在则初始化，否则追加
+    # 尝试加载已有的向量库
     store = load_vector_store(
-        api_key=api_key,
-        base_url=base_url if base_url else "http://localhost:11434/v1",
-        interface_format=interface_format,
+        api_key=embedding_api_key,
+        base_url=embedding_url if embedding_url else "http://localhost:11434/v1",
+        interface_format=embedding_interface_format,
         embedding_model_name=embedding_model_name,
         filepath=filepath
     )
     if not store:
         logging.info("Vector store does not exist. Initializing a new one for knowledge import...")
         init_vector_store(
-            api_key=api_key,
-            base_url=base_url if base_url else "http://localhost:11434/v1",
-            interface_format=interface_format,
+            api_key=embedding_api_key,
+            base_url=embedding_url if embedding_url else "http://localhost:11434/v1",
+            interface_format=embedding_interface_format,
             embedding_model_name=embedding_model_name,
             texts=paragraphs,
             filepath=filepath

@@ -597,11 +597,13 @@ class NovelGeneratorGUI:
         def task():
             self.disable_button_safe(self.btn_generate_chapter)
             try:
+                # LLM相关
                 api_key = self.api_key_var.get().strip()
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
 
+                # 章节信息
                 chap_num = self.safe_get_int(self.chapter_num_var, 1)
                 word_number = self.safe_get_int(self.word_number_var, 3000)
                 user_guidance = self.user_guide_text.get("0.0", "end").strip()
@@ -612,6 +614,10 @@ class NovelGeneratorGUI:
                 scene_loc = self.scene_location_var.get().strip()
                 time_constr = self.time_constraint_var.get().strip()
 
+                # Embedding相关
+                embedding_api_key = self.embedding_api_key_var.get().strip()
+                embedding_url = self.embedding_url_var.get().strip()
+                embedding_interface_format = self.embedding_interface_format_var.get().strip()
                 embedding_model_name = self.embedding_model_name_var.get().strip()
                 embedding_k = self.safe_get_int(self.embedding_retrieval_k_var, 4)
 
@@ -629,6 +635,10 @@ class NovelGeneratorGUI:
                     key_items=key_items,
                     scene_location=scene_loc,
                     time_constraint=time_constr,
+                    embedding_api_key=embedding_api_key,
+                    embedding_url=embedding_url,
+                    embedding_interface_format=embedding_interface_format,
+                    embedding_model_name=embedding_model_name,
                     embedding_retrieval_k=embedding_k
                 )
                 if draft_text:
@@ -659,13 +669,19 @@ class NovelGeneratorGUI:
         def task():
             self.disable_button_safe(self.btn_finalize_chapter)
             try:
+                # LLM相关
                 api_key = self.api_key_var.get().strip()
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
 
+                # Embedding相关
+                embedding_api_key = self.embedding_api_key_var.get().strip()
+                embedding_url = self.embedding_url_var.get().strip()
+                embedding_interface_format = self.embedding_interface_format_var.get().strip()
                 embedding_model_name = self.embedding_model_name_var.get().strip()
 
+                # 章节参数
                 chap_num = self.safe_get_int(self.chapter_num_var, 1)
                 word_number = self.safe_get_int(self.word_number_var, 3000)
 
@@ -686,6 +702,9 @@ class NovelGeneratorGUI:
                     model_name=model_name,
                     temperature=temperature,
                     filepath=filepath,
+                    embedding_api_key=embedding_api_key,
+                    embedding_url=embedding_url,
+                    embedding_interface_format=embedding_interface_format,
                     embedding_model_name=embedding_model_name
                 )
                 self.safe_log(f"✅ 第{chap_num}章定稿完成（已更新全局摘要、角色状态、向量库）。")
@@ -754,19 +773,18 @@ class NovelGeneratorGUI:
             def task():
                 self.disable_button_safe(self.btn_import_knowledge)
                 try:
-                    api_key = self.embedding_api_key_var.get().strip()
-                    base_url = self.embedding_url_var.get().strip()
-                    interface_format = self.embedding_interface_format_var.get().strip()
-                    embedding_model_name = self.embedding_model_name_var.get().strip()
+                    emb_api_key = self.embedding_api_key_var.get().strip()
+                    emb_url = self.embedding_url_var.get().strip()
+                    emb_format = self.embedding_interface_format_var.get().strip()
+                    emb_model = self.embedding_model_name_var.get().strip()
 
                     self.safe_log(f"开始导入知识库文件: {selected_file}")
                     import_knowledge_file(
-                        api_key=api_key,
-                        base_url=base_url,
-                        interface_format=interface_format,
-                        embedding_model_name=embedding_model_name,
+                        embedding_api_key=emb_api_key,
+                        embedding_url=emb_url,
+                        embedding_interface_format=emb_format,
+                        embedding_model_name=emb_model,
                         file_path=selected_file,
-                        embedding_base_url=base_url,
                         filepath=self.filepath_var.get().strip()
                     )
                     self.safe_log("✅ 知识库文件导入完成。")
