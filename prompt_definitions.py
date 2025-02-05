@@ -186,7 +186,7 @@ update_character_state_prompt = """\
 仅返回更新后的角色状态文本，不要解释任何内容。
 """
 
-# =============== 7. 章节正文写作 ===================
+# =============== 8. 章节正文写作 ===================
 scene_dynamics_prompt = """\
 即将创作：第{novel_number}章《{chapter_title}》
 本章定位：{chapter_role}
