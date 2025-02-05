@@ -504,7 +504,9 @@ def summarize_recent_chapters(
     prompt = f"""你是一名资深长篇小说写作辅助AI，下面是最近几章的合并文本：
 {combined_text}
 
-请用中文输出不超过500字的摘要，只包含主要剧情进展、角色变化、冲突焦点等要点："""
+请用中文输出不超过1000字的摘要，只包含主要剧情进展、角色变化、冲突焦点等要点：
+重点强调最后一章的重要内容，以及最后一幕场景细节。
+"""
 
     summary_text = invoke_with_cleaning(model, prompt)
     if not summary_text:
