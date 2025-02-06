@@ -48,8 +48,7 @@ class OpenAIEmbeddingAdapter(BaseEmbeddingAdapter):
 
 class OllamaEmbeddingAdapter(BaseEmbeddingAdapter):
     """
-    Ollama Embedding，示例中和之前的 embedding_ollama.py 类似
-    其接口路径往往为 /api/embeddings
+    其接口路径为 /api/embeddings
     """
     def __init__(self, model_name: str, base_url: str):
         self.model_name = model_name
