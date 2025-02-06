@@ -5,7 +5,7 @@ import logging
 import re
 import time
 import traceback
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 # langchain 相关
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -33,7 +33,8 @@ from prompt_definitions import (
     chapter_blueprint_prompt,
     summary_prompt,
     update_character_state_prompt,
-    scene_dynamics_prompt
+    chapter_draft_prompt,
+    summarize_recent_chapters_prompt
 )
 
 # Ollama嵌入 (如使用Ollama时需要)
@@ -51,8 +52,12 @@ def remove_think_tags(text: str) -> str:
     return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
 
 def debug_log(prompt: str, response_content: str):
-    logging.info(f"\n[#########################################  Prompt  #########################################]\n {prompt}\n")
-    logging.info(f"\n[######################################### Response #########################################]\n {response_content}\n")
+    logging.info(
+        f"\n[#########################################  Prompt  #########################################]\n{prompt}\n"
+    )
+    logging.info(
+        f"\n[######################################### Response #########################################]\n{response_content}\n"
+    )
 
 def invoke_with_cleaning(model: ChatOpenAI, prompt: str) -> str:
     """通用封装：调用模型并移除 <think>...</think> 文本，记录日志后返回"""
@@ -132,9 +137,8 @@ def clear_vector_store(filepath: str) -> bool:
         return False
 
     try:
-        if os.path.exists(store_dir):
-            shutil.rmtree(store_dir)
-            logging.info(f"Vector store directory '{store_dir}' removed.")
+        shutil.rmtree(store_dir)
+        logging.info(f"Vector store directory '{store_dir}' removed.")
         return True
     except Exception as e:
         logging.error(f"程序正在运行，无法删除，请在程序关闭后手动前往 {store_dir} 删除目录。\n {str(e)}")
@@ -222,7 +226,6 @@ def split_text_for_vectorstore(chapter_text: str,
         return []
 
     nltk.download('punkt', quiet=True)
-    nltk.download('punkt_tab', quiet=True)
     sentences = nltk.sent_tokenize(chapter_text)
     if not sentences:
         return []
@@ -332,7 +335,7 @@ def get_relevant_context_from_vector_store(
     return combined
 
 
-# ========== 1) 生成总体架构 (Novel_architecture.txt) ==========
+# ============ 1) 生成总体架构 (Novel_architecture.txt) ============
 def Novel_architecture_generate(
     api_key: str,
     base_url: str,
@@ -408,7 +411,7 @@ def Novel_architecture_generate(
     logging.info("Novel_architecture.txt has been generated successfully.")
 
 
-# ========== 2) 生成章节蓝图 (Novel_directory.txt) ==========
+# ============ 2) 生成章节蓝图 (Novel_directory.txt) ============
 def Chapter_blueprint_generate(
     api_key: str,
     base_url: str,
@@ -467,31 +470,41 @@ def Chapter_blueprint_generate(
     logging.info("Novel_directory.txt (chapter blueprint) has been generated successfully.")
 
 
-# ============ 获取最近 N 章内容，生成短期摘要 ============
+# ============ 工具：获取最近N章内容 ============
+
 def get_last_n_chapters_text(chapters_dir: str, current_chapter_num: int, n: int = 3) -> List[str]:
+    """
+    返回从 (current_chapter_num - n) 开始到 (current_chapter_num-1) 的章节文本列表。
+    若缺少文件，则对应位置为空字符串。
+    """
     texts = []
     start_chap = max(1, current_chapter_num - n)
     for c in range(start_chap, current_chapter_num):
         chap_file = os.path.join(chapters_dir, f"chapter_{c}.txt")
         if os.path.exists(chap_file):
             text = read_file(chap_file).strip()
-            if text:
-                texts.append(text)
-    if len(texts) < n:
-        texts = [''] * (n - len(texts)) + texts
+            texts.append(text)
+        else:
+            texts.append("")
     return texts
 
+
+# ============ 新增函数：从合并文本中提炼「当前情节短期摘要」 & 「下一章关键字」 ============
 def summarize_recent_chapters(
     llm_model: str,
     api_key: str,
     base_url: str,
     temperature: float,
     chapters_text_list: List[str]
-) -> str:
-    if not chapters_text_list:
-        return ""
-    if all(not txt.strip() for txt in chapters_text_list):
-        return "暂无摘要。"
+) -> Tuple[str, str]:
+    """
+    输入若干章节文本，合并后调用 summarize_recent_chapters_prompt，
+    返回 (short_summary, next_chapter_keywords)
+    如果解析失败，则返回(合并文本, "")
+    """
+    combined_text = "\n".join(chapters_text_list).strip()
+    if not combined_text:
+        return ("", "")
 
     model = ChatOpenAI(
         model=llm_model,
@@ -500,57 +513,29 @@ def summarize_recent_chapters(
         temperature=temperature
     )
 
-    combined_text = "\n".join(chapters_text_list)
-    prompt = f"""你是一名资深长篇小说编辑，分析以下合并文本：\n\n {combined_text} \n\n
+    prompt = summarize_recent_chapters_prompt.format(combined_text=combined_text)
+    response_text = invoke_with_cleaning(model, prompt)
 
-从中提取并预测下一章节的关键字[关键物品/人物/地点/事件/情节]
-"""
+    # 简易解析
+    short_summary = ""
+    next_chapter_keywords = ""
 
-    summary_text = invoke_with_cleaning(model, prompt)
-    if not summary_text:
-        return (combined_text[:800] + "...") if len(combined_text) > 800 else combined_text
-    return summary_text
+    for line in response_text.splitlines():
+        line = line.strip()
+        if line.startswith("短期摘要:"):
+            short_summary = line.replace("短期摘要:", "").strip()
+        elif line.startswith("下一章关键字:"):
+            next_chapter_keywords = line.replace("下一章关键字:", "").strip()
 
+    # 如果解析失败，就把返回文本当作短期摘要
+    if not short_summary and not next_chapter_keywords:
+        short_summary = response_text
 
-# ============ 剧情要点/冲突 ============
-PLOT_ARCS_PROMPT = """\
-下面是新生成的章节内容:
-{chapter_text}
-
-这里是已记录的剧情要点/未解决冲突(可能为空):
-{old_plot_arcs}
-
-请基于新的章节内容，提炼本章引入或延续的悬念、冲突、角色暗线等，将其合并到旧的剧情要点中。
-若有新的冲突则添加，若有已解决/不再重要的冲突可标注或移除。
-最终输出更新后的剧情要点列表，以帮助后续保持故事整体的一致性和悬念延续。
-"""
-
-def update_plot_arcs(
-    chapter_text: str,
-    old_plot_arcs: str,
-    api_key: str,
-    base_url: str,
-    model_name: str,
-    temperature: float
-) -> str:
-    model = ChatOpenAI(
-        model=model_name,
-        api_key=api_key,
-        base_url=ensure_openai_base_url_has_v1(base_url),
-        temperature=temperature
-    )
-    prompt = PLOT_ARCS_PROMPT.format(
-        chapter_text=chapter_text,
-        old_plot_arcs=old_plot_arcs
-    )
-    arcs_text = invoke_with_cleaning(model, prompt)
-    if not arcs_text:
-        logging.warning("update_plot_arcs: No response or empty result.")
-        return old_plot_arcs
-    return arcs_text
+    return (short_summary, next_chapter_keywords)
 
 
-# ========== 3) 生成章节草稿 ==========
+# ============ 3) 生成章节草稿（新版） ============
+
 def generate_chapter_draft(
     api_key: str,
     base_url: str,
@@ -571,12 +556,12 @@ def generate_chapter_draft(
     embedding_retrieval_k: int = 2
 ) -> str:
     """
-    根据 scene_dynamics_prompt，生成本章草稿。
-    - novel_architecture 取自 Novel_architecture.txt
-    - blueprint 取自 Novel_directory.txt
-    - global_summary, character_state 分别取自全局摘要、角色状态文件
-    - 从向量库检索上下文（embedding_*参数）
-    - 用户还可以额外提供四个可选元素：核心人物、关键道具、空间坐标、时间压力
+    根据新的 chapter_draft_prompt，生成本章草稿。
+    - 首先获取最近3章文本 => 提炼短期摘要 & 下一章关键字
+    - 使用(短期摘要 + 下一章关键字) 拼成 query => 检索向量库
+    - 同时取上一章(或最后一个非空章节)末尾1500字作为 "前章片段"
+    - 组合所有信息后，调用模型生成章节草稿
+    - 最后保存到 chapters/chapter_{novel_number}.txt
     """
 
     # 1) 读取相关文件
@@ -602,16 +587,37 @@ def generate_chapter_draft(
     plot_twist_level = chapter_info["plot_twist_level"]
     chapter_summary = chapter_info["chapter_summary"]
 
-    # 3) 取最近3章文本，拼成查询语句 => 用于向量库检索
     chapters_dir = os.path.join(filepath, "chapters")
-    recent_3_texts = get_last_n_chapters_text(chapters_dir, novel_number, n=3)
-    merged_query_str = "回顾剧情：\n" + "\n".join(recent_3_texts) + "\n" + user_guidance
+    os.makedirs(chapters_dir, exist_ok=True)
 
-    # 4) 检索向量库上下文 (使用embedding_*参数)
+    # 3) 获取最近3章文本 => 提炼 (短期摘要 & 下一章关键字)
+    recent_3_texts = get_last_n_chapters_text(chapters_dir, novel_number, n=3)
+    short_summary, next_chapter_keywords = summarize_recent_chapters(
+        llm_model=model_name,
+        api_key=api_key,
+        base_url=base_url,
+        temperature=temperature,
+        chapters_text_list=recent_3_texts
+    )
+
+    # 4) 取上一章片段(或最后一个非空章节)的末尾1500字
+    previous_chapter_excerpt = ""
+    for text_block in reversed(recent_3_texts):
+        if text_block.strip():
+            # 找到最近一个非空章节
+            if len(text_block) > 1500:
+                previous_chapter_excerpt = text_block[-1500:]
+            else:
+                previous_chapter_excerpt = text_block
+            break
+    # 如果全为空，则 previous_chapter_excerpt 就是 ""
+
+    # 5) 构造向量检索查询： (短期摘要 + 下一章关键字)
+    retrieval_query = short_summary + " " + next_chapter_keywords
     relevant_context = get_relevant_context_from_vector_store(
         api_key=embedding_api_key,
         base_url=embedding_url,
-        query=merged_query_str,
+        query=retrieval_query,
         interface_format=embedding_interface_format,
         embedding_model_name=embedding_model_name,
         filepath=filepath,
@@ -620,9 +626,8 @@ def generate_chapter_draft(
     if not relevant_context.strip():
         relevant_context = "（无检索到的上下文）"
 
-    novel_setting_text = novel_architecture_text
-
-    prompt_text = scene_dynamics_prompt.format(
+    # 6) 组装 Prompt
+    prompt_text = chapter_draft_prompt.format(
         novel_number=novel_number,
         chapter_title=chapter_title,
         chapter_role=chapter_role,
@@ -636,16 +641,17 @@ def generate_chapter_draft(
         key_items=key_items,
         scene_location=scene_location,
         time_constraint=time_constraint,
+        user_guidance=user_guidance,
 
-        novel_setting=novel_setting_text,
+        novel_setting=novel_architecture_text,
         global_summary=global_summary_text,
-        character_state=character_state_text
+        character_state=character_state_text,
+
+        previous_chapter_excerpt=previous_chapter_excerpt,
+        context_excerpt=relevant_context
     )
 
-    # 合并检索到的上下文和用户指导
-    prompt_text += f"\n\n【检索到的上下文】\n{relevant_context}"
-    prompt_text += f"\n\n【章节额外指导】\n{user_guidance}\n"
-
+    # 7) 调用 LLM 生成章节正文
     model = ChatOpenAI(
         model=model_name,
         api_key=api_key,
@@ -657,10 +663,8 @@ def generate_chapter_draft(
     if not chapter_content.strip():
         logging.warning("Generated chapter draft is empty.")
 
-    # 6) 写入 chapters
-    os.makedirs(chapters_dir, exist_ok=True)
+    # 8) 写入 chapters
     chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
-
     clear_file_content(chapter_file)
     save_string_to_txt(chapter_content, chapter_file)
 
@@ -668,7 +672,7 @@ def generate_chapter_draft(
     return chapter_content
 
 
-# ========== 4) 定稿章节 ==========
+# ============ 4) 定稿章节 ============
 def finalize_chapter(
     novel_number: int,
     word_number: int,
@@ -735,7 +739,7 @@ def finalize_chapter(
     clear_file_content(character_state_file)
     save_string_to_txt(new_char_state, character_state_file)
 
-    # 3) 更新向量库 (embedding相关)
+    # 3) 更新向量库
     update_vector_store(
         api_key=embedding_api_key,
         base_url=embedding_url,
@@ -771,6 +775,7 @@ def enrich_chapter_text(
 
 
 # ============ 导入外部知识文本到向量库 ============
+
 def advanced_split_content(content: str,
                            similarity_threshold: float = 0.7,
                            max_length: int = 500) -> List[str]:
