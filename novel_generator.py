@@ -7,8 +7,6 @@ import time
 import traceback
 from typing import List, Optional, Tuple
 
-# langchain 相关
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_chroma import Chroma
 from chromadb.config import Settings
 from langchain.docstore.document import Document
@@ -37,16 +35,16 @@ from prompt_definitions import (
     summarize_recent_chapters_prompt
 )
 
-# Ollama嵌入 (如使用Ollama时需要)
-from embedding_ollama import OllamaEmbeddings
-
-# 用于目录解析章节标题/简介
+# 章节目录解析
 from chapter_directory_parser import get_chapter_info_from_blueprint
+
+from llm_adapters import create_llm_adapter
+from embedding_adapters import create_embedding_adapter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
+# ============ 工具函数 ============
 
-# ============ 基础工具 ============
 def remove_think_tags(text: str) -> str:
     """移除 <think>...</think> 包裹的内容"""
     return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
@@ -59,128 +57,79 @@ def debug_log(prompt: str, response_content: str):
         f"\n[######################################### Response #########################################]\n{response_content}\n"
     )
 
-def invoke_with_cleaning(model: ChatOpenAI, prompt: str) -> str:
-    """通用封装：调用模型并移除 <think>...</think> 文本，记录日志后返回"""
-    response = model.invoke(prompt)
+def invoke_with_cleaning(llm_adapter, prompt: str) -> str:
+    """通用封装：调用 LLM，并移除 <think>...</think> 文本，记录日志后返回"""
+    response = llm_adapter.invoke(prompt)
     if not response:
         logging.warning("No response from model.")
         return ""
-    cleaned_text = remove_think_tags(response.content)
+    cleaned_text = remove_think_tags(response)
     debug_log(prompt, cleaned_text)
     return cleaned_text.strip()
 
-def ensure_openai_base_url_has_v1(url: str) -> str:
-    """
-    若用户输入的 url 不包含 '/v1'，则在末尾追加 '/v1'。
-    """
-    import re
-    url = url.strip()
-    if not url:
-        return url
-    if not re.search(r'/v\d+$', url):
-        if '/v1' not in url:
-            url = url.rstrip('/') + '/v1'
-    return url
-
-def is_using_ollama_api(interface_format: str) -> bool:
-    return interface_format.lower() == "ollama"
-
-def is_using_ml_studio_api(interface_format: str) -> bool:
-    return interface_format.lower() == "ml studio"
-
-
 # ============ 获取 vectorstore 路径 ============
+
 def get_vectorstore_dir(filepath: str) -> str:
-    """
-    返回存储向量库的本地路径：
-    在用户指定的 `filepath` 下创建/使用 'vectorstore' 文件夹。
-    """
     return os.path.join(filepath, "vectorstore")
 
+# ============ 清空向量库 ============
 
-# ============ 创建 Embeddings 对象 ============
-def create_embeddings_object(
-    api_key: str,
-    base_url: str,
-    interface_format: str,
-    embedding_model_name: str
-):
-    """
-    根据 embedding_interface_format，选择 Ollama 或 OpenAIEmbeddings 等不同后端。
-    """
-    if is_using_ollama_api(interface_format):
-        fixed_url = base_url.rstrip("/")
-        return OllamaEmbeddings(
-            model_name=embedding_model_name,
-            base_url=fixed_url
-        )
-    else:
-        # OpenAI 或 ML Studio 均使用 OpenAIEmbeddings，注意 base_url 可能需要 ensure /v1
-        fixed_url = ensure_openai_base_url_has_v1(base_url)
-        return OpenAIEmbeddings(
-            openai_api_key=api_key,
-            openai_api_base=fixed_url,
-            model=embedding_model_name
-        )
-
-
-# ============ 向量库相关操作 ============
 def clear_vector_store(filepath: str) -> bool:
-    """
-    返回值表示是否成功清空向量库。
-    """
     import shutil
-
     store_dir = get_vectorstore_dir(filepath)
     if not os.path.exists(store_dir):
         logging.info("No vector store found to clear.")
         return False
-
     try:
         shutil.rmtree(store_dir)
         logging.info(f"Vector store directory '{store_dir}' removed.")
         return True
     except Exception as e:
-        logging.error(f"程序正在运行，无法删除，请在程序关闭后手动前往 {store_dir} 删除目录。\n {str(e)}")
+        logging.error(f"无法删除向量库文件夹，请关闭程序后手动删除 {store_dir}。\n {str(e)}")
         traceback.print_exc()
         return False
 
+# ============ 根据 embedding 接口创建/加载 Chroma ============
+
 def init_vector_store(
-    api_key: str,
-    base_url: str,
-    interface_format: str,
-    embedding_model_name: str,
+    embedding_adapter,
     texts: List[str],
     filepath: str
 ) -> Chroma:
     """
     在 filepath 下创建/加载一个 Chroma 向量库并插入 texts。
+    这里 embedding_adapter 是一个实现了 embed_documents(texts) 的对象
     """
     store_dir = get_vectorstore_dir(filepath)
     os.makedirs(store_dir, exist_ok=True)
 
-    embeddings = create_embeddings_object(
-        api_key=api_key,
-        base_url=base_url,
-        interface_format=interface_format,
-        embedding_model_name=embedding_model_name
-    )
+    # 将文本封装为 Document
     documents = [Document(page_content=str(t)) for t in texts]
+
+    # 因为我们是自定义的 embeddings，对接Chroma时需包装一个“langchain兼容对象”
+    # 这里示例：写一个包装函数
+    from langchain.embeddings.base import Embeddings as LCEmbeddings
+
+    class LCEmbeddingWrapper(LCEmbeddings):
+        def embed_documents(self, doc_texts: List[str]) -> List[List[float]]:
+            return embedding_adapter.embed_documents(doc_texts)
+
+        def embed_query(self, query_text: str) -> List[float]:
+            return embedding_adapter.embed_query(query_text)
+
+    chroma_embedding = LCEmbeddingWrapper()
+
     vectorstore = Chroma.from_documents(
         documents,
-        embedding=embeddings,
+        embedding=chroma_embedding,
         persist_directory=store_dir,
         client_settings=Settings(anonymized_telemetry=False),
         collection_name="novel_collection"
     )
     return vectorstore
 
-
 def load_vector_store(
-    api_key: str,
-    base_url: str,
-    interface_format: str,
-    embedding_model_name: str,
+    embedding_adapter,
     filepath: str
 ) -> Optional[Chroma]:
     """
@@ -191,19 +140,26 @@ def load_vector_store(
         logging.info("Vector store not found. Will return None.")
         return None
 
-    embeddings = create_embeddings_object(
-        api_key=api_key,
-        base_url=base_url,
-        interface_format=interface_format,
-        embedding_model_name=embedding_model_name
-    )
+    # 同样要包装embedding_adapter
+    from langchain.embeddings.base import Embeddings as LCEmbeddings
+
+    class LCEmbeddingWrapper(LCEmbeddings):
+        def embed_documents(self, doc_texts: List[str]) -> List[List[float]]:
+            return embedding_adapter.embed_documents(doc_texts)
+
+        def embed_query(self, query_text: str) -> List[float]:
+            return embedding_adapter.embed_query(query_text)
+
+    chroma_embedding = LCEmbeddingWrapper()
+
     return Chroma(
         persist_directory=store_dir,
-        embedding_function=embeddings,
+        embedding_function=chroma_embedding,
         client_settings=Settings(anonymized_telemetry=False),
         collection_name="novel_collection"
     )
 
+# ============ 文本分段工具 ============
 
 def split_by_length(text: str, max_length: int = 500) -> List[str]:
     segments = []
@@ -215,12 +171,12 @@ def split_by_length(text: str, max_length: int = 500) -> List[str]:
         start_idx = end_idx
     return segments
 
-
 def split_text_for_vectorstore(chapter_text: str,
                                max_length: int = 500,
                                similarity_threshold: float = 0.7) -> List[str]:
     """
     对新的章节文本进行分段后，再用于存入向量库。
+    先句子切分 -> 语义相似度合并 -> 再按 max_length 切分。
     """
     if not chapter_text.strip():
         return []
@@ -230,7 +186,6 @@ def split_text_for_vectorstore(chapter_text: str,
     if not sentences:
         return []
 
-    # 先对相近句子进行合并
     model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
     embeddings = model.encode(sentences)
 
@@ -251,7 +206,6 @@ def split_text_for_vectorstore(chapter_text: str,
     if current_sentences:
         merged_paragraphs.append(" ".join(current_sentences))
 
-    # 再对合并好的段落做 max_length 切分
     final_segments = []
     for para in merged_paragraphs:
         if len(para) > max_length:
@@ -262,13 +216,11 @@ def split_text_for_vectorstore(chapter_text: str,
 
     return final_segments
 
+# ============ 更新向量库 ============
 
 def update_vector_store(
-    api_key: str,
-    base_url: str,
+    embedding_adapter,
     new_chapter: str,
-    interface_format: str,
-    embedding_model_name: str,
     filepath: str
 ):
     """
@@ -279,49 +231,28 @@ def update_vector_store(
         logging.warning("No valid text to insert into vector store. Skipping.")
         return
 
-    store = load_vector_store(
-        api_key=api_key,
-        base_url=base_url,
-        interface_format=interface_format,
-        embedding_model_name=embedding_model_name,
-        filepath=filepath
-    )
+    store = load_vector_store(embedding_adapter, filepath)
     if not store:
         logging.info("Vector store does not exist. Initializing a new one for new chapter...")
-        init_vector_store(
-            api_key=api_key,
-            base_url=base_url,
-            interface_format=interface_format,
-            embedding_model_name=embedding_model_name,
-            texts=splitted_texts,
-            filepath=filepath
-        )
+        init_vector_store(embedding_adapter, splitted_texts, filepath)
         return
 
     docs = [Document(page_content=str(t)) for t in splitted_texts]
     store.add_documents(docs)
     logging.info("Vector store updated with the new chapter splitted segments.")
-
+    
+# ============ 向量检索上下文 ============
 
 def get_relevant_context_from_vector_store(
-    api_key: str,
-    base_url: str,
+    embedding_adapter,
     query: str,
-    interface_format: str,
-    embedding_model_name: str,
     filepath: str,
     k: int = 2
 ) -> str:
     """
     从向量库中检索与 query 最相关的 k 条文本，拼接后返回。
     """
-    store = load_vector_store(
-        api_key=api_key,
-        base_url=base_url,
-        interface_format=interface_format,
-        embedding_model_name=embedding_model_name,
-        filepath=filepath
-    )
+    store = load_vector_store(embedding_adapter, filepath)
     if not store:
         logging.info("No vector store found. Returning empty context.")
         return ""
@@ -334,8 +265,68 @@ def get_relevant_context_from_vector_store(
     combined = "\n".join([d.page_content for d in docs])
     return combined
 
+# ============ 从目录中获取最近 n 章文本 ============
 
-# ============ 1) 生成总体架构 (Novel_architecture.txt) ============
+def get_last_n_chapters_text(chapters_dir: str, current_chapter_num: int, n: int = 3) -> List[str]:
+    texts = []
+    start_chap = max(1, current_chapter_num - n)
+    for c in range(start_chap, current_chapter_num):
+        chap_file = os.path.join(chapters_dir, f"chapter_{c}.txt")
+        if os.path.exists(chap_file):
+            text = read_file(chap_file).strip()
+            texts.append(text)
+        else:
+            texts.append("")
+    return texts
+
+# ============ 提炼(短期摘要, 下一章关键字) ============
+
+def summarize_recent_chapters(
+    interface_format: str,
+    api_key: str,
+    base_url: str,
+    model_name: str,
+    temperature: float,
+    chapters_text_list: List[str]
+) -> Tuple[str, str]:
+    """
+    生成 (short_summary, next_chapter_keywords)
+    如果解析失败，则返回 (合并文本, "")
+    """
+    combined_text = "\n".join(chapters_text_list).strip()
+    if not combined_text:
+        return ("", "")
+
+    # 1) 构造 llm_adapter
+    llm_adapter = create_llm_adapter(
+        interface_format=interface_format,
+        base_url=base_url,
+        model_name=model_name,
+        api_key=api_key,
+        temperature=temperature
+    )
+
+    prompt = summarize_recent_chapters_prompt.format(combined_text=combined_text)
+    response_text = invoke_with_cleaning(llm_adapter, prompt)
+
+    short_summary = ""
+    next_chapter_keywords = ""
+
+    for line in response_text.splitlines():
+        line = line.strip()
+        if line.startswith("短期摘要:"):
+            short_summary = line.replace("短期摘要:", "").strip()
+        elif line.startswith("下一章关键字:"):
+            next_chapter_keywords = line.replace("下一章关键字:", "").strip()
+
+    if not short_summary and not next_chapter_keywords:
+        short_summary = response_text
+
+    return (short_summary, next_chapter_keywords)
+
+
+# ============ 1) 生成总体架构 ============
+
 def Novel_architecture_generate(
     api_key: str,
     base_url: str,
@@ -348,70 +339,68 @@ def Novel_architecture_generate(
     temperature: float = 0.7
 ) -> None:
     """
-    依次调用：
+    依次调用:
       1. core_seed_prompt
       2. character_dynamics_prompt
       3. world_building_prompt
       4. plot_architecture_prompt
-    将结果整合为“Novel_architecture.txt”。
+    最终输出 Novel_architecture.txt
     """
     os.makedirs(filepath, exist_ok=True)
-    model = ChatOpenAI(
-        model=llm_model,
+
+    # 通过工厂函数创建 LLM 适配器
+    llm_adapter = create_llm_adapter(
+        interface_format="openai",  # 或根据你的实际：若你在UI中就是 "OpenAI" 就传递过来
+        base_url=base_url,
+        model_name=llm_model,
         api_key=api_key,
-        base_url=ensure_openai_base_url_has_v1(base_url),
         temperature=temperature
     )
 
-    # 1) 核心种子
+    # Step1: 核心种子
     prompt_core = core_seed_prompt.format(
         topic=topic,
         genre=genre,
         number_of_chapters=number_of_chapters,
         word_number=word_number
     )
-    core_seed_result = invoke_with_cleaning(model, prompt_core)
-    core_seed_text = core_seed_result.strip()
+    core_seed_result = invoke_with_cleaning(llm_adapter, prompt_core)
 
-    # 2) 角色动力学
-    prompt_character = character_dynamics_prompt.format(core_seed=core_seed_text)
-    character_dynamics_result = invoke_with_cleaning(model, prompt_character)
-    character_dynamics_text = character_dynamics_result.strip()
+    # Step2: 角色动力学
+    prompt_character = character_dynamics_prompt.format(core_seed=core_seed_result.strip())
+    character_dynamics_result = invoke_with_cleaning(llm_adapter, prompt_character)
 
-    # 3) 世界观
-    prompt_world = world_building_prompt.format(core_seed=core_seed_text)
-    world_building_result = invoke_with_cleaning(model, prompt_world)
-    world_building_text = world_building_result.strip()
+    # Step3: 世界观
+    prompt_world = world_building_prompt.format(core_seed=core_seed_result.strip())
+    world_building_result = invoke_with_cleaning(llm_adapter, prompt_world)
 
-    # 4) 三幕式情节架构
+    # Step4: 三幕式情节
     prompt_plot = plot_architecture_prompt.format(
-        core_seed=core_seed_text,
-        character_dynamics=character_dynamics_text,
-        world_building=world_building_text
+        core_seed=core_seed_result.strip(),
+        character_dynamics=character_dynamics_result.strip(),
+        world_building=world_building_result.strip()
     )
-    plot_arch_result = invoke_with_cleaning(model, prompt_plot)
-    plot_arch_text = plot_arch_result.strip()
+    plot_arch_result = invoke_with_cleaning(llm_adapter, prompt_plot)
 
-    # 整合并写入 Novel_architecture.txt
+    # 合并
     final_content = (
         "#=== 1) 核心种子 ===\n"
-        f"{core_seed_text}\n\n"
+        f"{core_seed_result}\n\n"
         "#=== 2) 角色动力学 ===\n"
-        f"{character_dynamics_text}\n\n"
+        f"{character_dynamics_result}\n\n"
         "#=== 3) 世界观 ===\n"
-        f"{world_building_text}\n\n"
+        f"{world_building_result}\n\n"
         "#=== 4) 三幕式情节架构 ===\n"
-        f"{plot_arch_text}\n"
+        f"{plot_arch_result}\n"
     )
 
     arch_file = os.path.join(filepath, "Novel_architecture.txt")
     clear_file_content(arch_file)
     save_string_to_txt(final_content, arch_file)
-
     logging.info("Novel_architecture.txt has been generated successfully.")
 
+# ============ 2) 生成章节蓝图 ============
 
-# ============ 2) 生成章节蓝图 (Novel_directory.txt) ============
 def Chapter_blueprint_generate(
     api_key: str,
     base_url: str,
@@ -419,10 +408,6 @@ def Chapter_blueprint_generate(
     filepath: str,
     temperature: float = 0.7
 ) -> None:
-    """
-    基于“Novel_architecture.txt”中的三幕式情节架构，调用 chapter_blueprint_prompt，
-    生成章节蓝图并写入 Novel_directory.txt。
-    """
     arch_file = os.path.join(filepath, "Novel_architecture.txt")
     if not os.path.exists(arch_file):
         logging.warning("Novel_architecture.txt not found. Please generate architecture first.")
@@ -433,12 +418,11 @@ def Chapter_blueprint_generate(
         logging.warning("Novel_architecture.txt is empty.")
         return
 
-    # 从内容中尽量提取 number_of_chapters
     match_chaps = re.search(r'约(\d+)章', architecture_text)
     if match_chaps:
         number_of_chapters = int(match_chaps.group(1))
     else:
-        number_of_chapters = 10  # fallback
+        number_of_chapters = 10
 
     # 提取三幕式文本
     plot_arch_text = ""
@@ -447,10 +431,11 @@ def Chapter_blueprint_generate(
     if m:
         plot_arch_text = m.group(1).strip()
 
-    model = ChatOpenAI(
-        model=llm_model,
+    llm_adapter = create_llm_adapter(
+        interface_format="openai",  # 或实际由UI传入
+        base_url=base_url,
+        model_name=llm_model,
         api_key=api_key,
-        base_url=ensure_openai_base_url_has_v1(base_url),
         temperature=temperature
     )
 
@@ -458,7 +443,7 @@ def Chapter_blueprint_generate(
         plot_architecture=plot_arch_text,
         number_of_chapters=number_of_chapters
     )
-    blueprint_text = invoke_with_cleaning(model, prompt)
+    blueprint_text = invoke_with_cleaning(llm_adapter, prompt)
     if not blueprint_text.strip():
         logging.warning("Chapter blueprint generation result is empty.")
         return
@@ -469,72 +454,7 @@ def Chapter_blueprint_generate(
 
     logging.info("Novel_directory.txt (chapter blueprint) has been generated successfully.")
 
-
-# ============ 工具：获取最近N章内容 ============
-
-def get_last_n_chapters_text(chapters_dir: str, current_chapter_num: int, n: int = 3) -> List[str]:
-    """
-    返回从 (current_chapter_num - n) 开始到 (current_chapter_num-1) 的章节文本列表。
-    若缺少文件，则对应位置为空字符串。
-    """
-    texts = []
-    start_chap = max(1, current_chapter_num - n)
-    for c in range(start_chap, current_chapter_num):
-        chap_file = os.path.join(chapters_dir, f"chapter_{c}.txt")
-        if os.path.exists(chap_file):
-            text = read_file(chap_file).strip()
-            texts.append(text)
-        else:
-            texts.append("")
-    return texts
-
-
-# ============ 新增函数：从合并文本中提炼「当前情节短期摘要」 & 「下一章关键字」 ============
-def summarize_recent_chapters(
-    llm_model: str,
-    api_key: str,
-    base_url: str,
-    temperature: float,
-    chapters_text_list: List[str]
-) -> Tuple[str, str]:
-    """
-    输入若干章节文本，合并后调用 summarize_recent_chapters_prompt，
-    返回 (short_summary, next_chapter_keywords)
-    如果解析失败，则返回(合并文本, "")
-    """
-    combined_text = "\n".join(chapters_text_list).strip()
-    if not combined_text:
-        return ("", "")
-
-    model = ChatOpenAI(
-        model=llm_model,
-        api_key=api_key,
-        base_url=ensure_openai_base_url_has_v1(base_url),
-        temperature=temperature
-    )
-
-    prompt = summarize_recent_chapters_prompt.format(combined_text=combined_text)
-    response_text = invoke_with_cleaning(model, prompt)
-
-    # 简易解析
-    short_summary = ""
-    next_chapter_keywords = ""
-
-    for line in response_text.splitlines():
-        line = line.strip()
-        if line.startswith("短期摘要:"):
-            short_summary = line.replace("短期摘要:", "").strip()
-        elif line.startswith("下一章关键字:"):
-            next_chapter_keywords = line.replace("下一章关键字:", "").strip()
-
-    # 如果解析失败，就把返回文本当作短期摘要
-    if not short_summary and not next_chapter_keywords:
-        short_summary = response_text
-
-    return (short_summary, next_chapter_keywords)
-
-
-# ============ 3) 生成章节草稿（新版） ============
+# ============ 3) 生成章节草稿 ============
 
 def generate_chapter_draft(
     api_key: str,
@@ -555,16 +475,6 @@ def generate_chapter_draft(
     embedding_model_name: str,
     embedding_retrieval_k: int = 2
 ) -> str:
-    """
-    根据新的 chapter_draft_prompt，生成本章草稿。
-    - 首先获取最近3章文本 => 提炼短期摘要 & 下一章关键字
-    - 使用(短期摘要 + 下一章关键字) 拼成 query => 检索向量库
-    - 同时取上一章(或最后一个非空章节)末尾1500字作为 "前章片段"
-    - 组合所有信息后，调用模型生成章节草稿
-    - 最后保存到 chapters/chapter_{novel_number}.txt
-    """
-
-    # 1) 读取相关文件
     arch_file = os.path.join(filepath, "Novel_architecture.txt")
     novel_architecture_text = read_file(arch_file)
 
@@ -577,7 +487,7 @@ def generate_chapter_draft(
     character_state_file = os.path.join(filepath, "character_state.txt")
     character_state_text = read_file(character_state_file)
 
-    # 2) 解析 blueprint，得到本章所需的字段
+    # 解析本章信息
     chapter_info = get_chapter_info_from_blueprint(blueprint_text, novel_number)
     chapter_title = chapter_info["chapter_title"]
     chapter_role = chapter_info["chapter_role"]
@@ -590,43 +500,45 @@ def generate_chapter_draft(
     chapters_dir = os.path.join(filepath, "chapters")
     os.makedirs(chapters_dir, exist_ok=True)
 
-    # 3) 获取最近3章文本 => 提炼 (短期摘要 & 下一章关键字)
+    # 获取最近3章 => (短期摘要, 下一章关键字)
     recent_3_texts = get_last_n_chapters_text(chapters_dir, novel_number, n=3)
     short_summary, next_chapter_keywords = summarize_recent_chapters(
-        llm_model=model_name,
+        interface_format="openai",  # 或由UI传进
         api_key=api_key,
         base_url=base_url,
+        model_name=model_name,
         temperature=temperature,
         chapters_text_list=recent_3_texts
     )
 
-    # 4) 取上一章片段(或最后一个非空章节)的末尾1500字
+    # 上一章片段(末尾1500字)
     previous_chapter_excerpt = ""
     for text_block in reversed(recent_3_texts):
         if text_block.strip():
-            # 找到最近一个非空章节
             if len(text_block) > 1500:
                 previous_chapter_excerpt = text_block[-1500:]
             else:
                 previous_chapter_excerpt = text_block
             break
-    # 如果全为空，则 previous_chapter_excerpt 就是 ""
 
-    # 5) 构造向量检索查询： (短期摘要 + 下一章关键字)
+    # 使用embedding检索上下文
+    embedding_adapter = create_embedding_adapter(
+        embedding_interface_format,
+        embedding_api_key,
+        embedding_url,
+        embedding_model_name
+    )
     retrieval_query = short_summary + " " + next_chapter_keywords
     relevant_context = get_relevant_context_from_vector_store(
-        api_key=embedding_api_key,
-        base_url=embedding_url,
+        embedding_adapter=embedding_adapter,
         query=retrieval_query,
-        interface_format=embedding_interface_format,
-        embedding_model_name=embedding_model_name,
         filepath=filepath,
         k=embedding_retrieval_k
     )
     if not relevant_context.strip():
         relevant_context = "（无检索到的上下文）"
 
-    # 6) 组装 Prompt
+    # 组装 Prompt
     prompt_text = chapter_draft_prompt.format(
         novel_number=novel_number,
         chapter_title=chapter_title,
@@ -646,24 +558,23 @@ def generate_chapter_draft(
         novel_setting=novel_architecture_text,
         global_summary=global_summary_text,
         character_state=character_state_text,
-
         previous_chapter_excerpt=previous_chapter_excerpt,
         context_excerpt=relevant_context
     )
 
-    # 7) 调用 LLM 生成章节正文
-    model = ChatOpenAI(
-        model=model_name,
+    # 调用 LLM 生成
+    llm_adapter = create_llm_adapter(
+        interface_format="openai",  # 或由UI传进
+        base_url=base_url,
+        model_name=model_name,
         api_key=api_key,
-        base_url=ensure_openai_base_url_has_v1(base_url),
         temperature=temperature
     )
-
-    chapter_content = invoke_with_cleaning(model, prompt_text)
+    chapter_content = invoke_with_cleaning(llm_adapter, prompt_text)
     if not chapter_content.strip():
         logging.warning("Generated chapter draft is empty.")
 
-    # 8) 写入 chapters
+    # 写入 chapter_X.txt
     chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
     clear_file_content(chapter_file)
     save_string_to_txt(chapter_content, chapter_file)
@@ -671,8 +582,8 @@ def generate_chapter_draft(
     logging.info(f"[Draft] Chapter {novel_number} generated as a draft.")
     return chapter_content
 
-
 # ============ 4) 定稿章节 ============
+
 def finalize_chapter(
     novel_number: int,
     word_number: int,
@@ -686,9 +597,6 @@ def finalize_chapter(
     embedding_interface_format: str,
     embedding_model_name: str
 ):
-    """
-    定稿：更新全局摘要、角色状态，并将本章文本插入向量库。
-    """
     chapters_dir = os.path.join(filepath, "chapters")
     chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
     chapter_text = read_file(chapter_file).strip()
@@ -696,7 +604,7 @@ def finalize_chapter(
         logging.warning(f"Chapter {novel_number} is empty, cannot finalize.")
         return
 
-    # 若篇幅过短，可尝试扩写
+    # 如果篇幅过短，可以扩写
     if len(chapter_text) < 0.6 * word_number:
         chapter_text = enrich_chapter_text(chapter_text, word_number, api_key, base_url, model_name, temperature)
         clear_file_content(chapter_file)
@@ -708,49 +616,48 @@ def finalize_chapter(
     character_state_file = os.path.join(filepath, "character_state.txt")
     old_character_state = read_file(character_state_file)
 
-    # 1) 更新全局摘要
-    model = ChatOpenAI(
-        model=model_name,
+    # 调用 LLM 更新全局摘要
+    llm_adapter = create_llm_adapter(
+        interface_format="openai",
+        base_url=base_url,
+        model_name=model_name,
         api_key=api_key,
-        base_url=ensure_openai_base_url_has_v1(base_url),
         temperature=temperature
     )
     prompt_summary = summary_prompt.format(
         chapter_text=chapter_text,
         global_summary=old_global_summary
     )
-    new_global_summary = invoke_with_cleaning(model, prompt_summary)
+    new_global_summary = invoke_with_cleaning(llm_adapter, prompt_summary)
     if not new_global_summary.strip():
         new_global_summary = old_global_summary
 
-    # 2) 更新角色状态
+    # 更新角色状态
     prompt_char_state = update_character_state_prompt.format(
         chapter_text=chapter_text,
         old_state=old_character_state
     )
-    new_char_state = invoke_with_cleaning(model, prompt_char_state)
+    new_char_state = invoke_with_cleaning(llm_adapter, prompt_char_state)
     if not new_char_state.strip():
         new_char_state = old_character_state
 
-    # 写回文件
+    # 写回
     clear_file_content(global_summary_file)
     save_string_to_txt(new_global_summary, global_summary_file)
 
     clear_file_content(character_state_file)
     save_string_to_txt(new_char_state, character_state_file)
 
-    # 3) 更新向量库
-    update_vector_store(
-        api_key=embedding_api_key,
-        base_url=embedding_url,
-        new_chapter=chapter_text,
-        interface_format=embedding_interface_format,
-        embedding_model_name=embedding_model_name,
-        filepath=filepath
+    # 更新向量库
+    embedding_adapter = create_embedding_adapter(
+        embedding_interface_format,
+        embedding_api_key,
+        embedding_url,
+        embedding_model_name
     )
+    update_vector_store(embedding_adapter, chapter_text, filepath)
 
     logging.info(f"Chapter {novel_number} has been finalized.")
-
 
 def enrich_chapter_text(
     chapter_text: str,
@@ -760,28 +667,25 @@ def enrich_chapter_text(
     model_name: str,
     temperature: float
 ) -> str:
-    model = ChatOpenAI(
-        model=model_name,
+    llm_adapter = create_llm_adapter(
+        interface_format="openai",
+        base_url=base_url,
+        model_name=model_name,
         api_key=api_key,
-        base_url=ensure_openai_base_url_has_v1(base_url),
         temperature=temperature
     )
-    prompt = f"""以下是当前章节文本，可能篇幅较短，请在保持剧情连贯的前提下进行扩写，使其更充实、生动，并尽量靠近目标 {word_number} 字数。
-
-原章节内容：
-{chapter_text}"""
-    enriched_text = invoke_with_cleaning(model, prompt)
+    prompt = f"""以下章节文本较短，请在保持剧情连贯的前提下进行扩写，使其更充实，接近 {word_number} 字左右：
+原内容：
+{chapter_text}
+"""
+    enriched_text = invoke_with_cleaning(llm_adapter, prompt)
     return enriched_text if enriched_text else chapter_text
 
-
-# ============ 导入外部知识文本到向量库 ============
+# ============ 导入知识文件到向量库 ============
 
 def advanced_split_content(content: str,
                            similarity_threshold: float = 0.7,
                            max_length: int = 500) -> List[str]:
-    """
-    将文本先按句子切分，然后根据语义相似度进行合并，最后按 max_length 二次切分。
-    """
     nltk.download('punkt', quiet=True)
     sentences = nltk.sent_tokenize(content)
     if not sentences:
@@ -837,24 +741,17 @@ def import_knowledge_file(
 
     paragraphs = advanced_split_content(content)
 
-    # 尝试加载已有的向量库
-    store = load_vector_store(
+    embedding_adapter = create_embedding_adapter(
+        interface_format=embedding_interface_format,
         api_key=embedding_api_key,
         base_url=embedding_url if embedding_url else "http://localhost:11434/api",
-        interface_format=embedding_interface_format,
-        embedding_model_name=embedding_model_name,
-        filepath=filepath
+        model_name=embedding_model_name
     )
+
+    store = load_vector_store(embedding_adapter, filepath)
     if not store:
         logging.info("Vector store does not exist. Initializing a new one for knowledge import...")
-        init_vector_store(
-            api_key=embedding_api_key,
-            base_url=embedding_url if embedding_url else "http://localhost:11434/api",
-            interface_format=embedding_interface_format,
-            embedding_model_name=embedding_model_name,
-            texts=paragraphs,
-            filepath=filepath
-        )
+        init_vector_store(embedding_adapter, paragraphs, filepath)
     else:
         docs = [Document(page_content=str(p)) for p in paragraphs]
         store.add_documents(docs)

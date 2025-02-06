@@ -10,6 +10,7 @@ import traceback
 
 from config_manager import load_config, save_config
 from utils import read_file, save_string_to_txt, clear_file_content
+
 from novel_generator import (
     Novel_architecture_generate,
     Chapter_blueprint_generate,
@@ -17,20 +18,16 @@ from novel_generator import (
     finalize_chapter,
     import_knowledge_file,
     clear_vector_store,
-    get_last_n_chapters_text,
+    get_last_n_chapters_text
 )
+
 from consistency_checker import check_consistency
 
-
 def log_error(message: str):
-    """
-    用于打印详细的错误信息和堆栈信息。
-    """
     logging.error(f"{message}\n{traceback.format_exc()}")
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
-
 
 class NovelGeneratorGUI:
     def __init__(self, master):
@@ -71,14 +68,14 @@ class NovelGeneratorGUI:
 
         self.chapter_num_var = ctk.StringVar(value="1")
 
-        # 新增四个可选要素
+        # 四个可选要素
         self.characters_involved_var = ctk.StringVar(value="")
         self.key_items_var = ctk.StringVar(value="")
         self.scene_location_var = ctk.StringVar(value="")
         self.time_constraint_var = ctk.StringVar(value="")
 
         # UI 布局
-        self.tabview = ctk.CTkTabview(self.master, width=1200, height=800)
+        self.tabview = ctk.CTkTabview(self.master)
         self.tabview.pack(fill="both", expand=True)
 
         self.main_tab = self.tabview.add("Main Functions")
@@ -197,7 +194,7 @@ class NovelGeneratorGUI:
         self.build_optional_buttons_area(start_row=2)
 
     def build_config_tabview(self):
-        self.config_tabview = ctk.CTkTabview(self.config_frame, width=600, height=200)
+        self.config_tabview = ctk.CTkTabview(self.config_frame)
         self.config_tabview.grid(row=0, column=0, sticky="we", padx=5, pady=5)
 
         self.ai_config_tab = self.config_tabview.add("LLM Model settings")
@@ -256,8 +253,8 @@ class NovelGeneratorGUI:
 
         temp_scale = ctk.CTkSlider(
             self.ai_config_tab,
-            from_=0.0, to=1.0,
-            number_of_steps=100,
+            from_=0.0, to=2.0,
+            number_of_steps=200,
             command=update_temp_label,
             variable=self.temperature_var
         )
@@ -335,7 +332,7 @@ class NovelGeneratorGUI:
 
         topic_label = ctk.CTkLabel(self.params_frame, text="主题(Topic):", font=("Microsoft YaHei", 12))
         topic_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        self.topic_text = ctk.CTkTextbox(self.params_frame, width=200, height=80, wrap="word", font=("Microsoft YaHei", 12))
+        self.topic_text = ctk.CTkTextbox(self.params_frame,height=80, wrap="word", font=("Microsoft YaHei", 12))
         self.topic_text.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
         if self.topic_default:
             self.topic_text.insert("0.0", self.topic_default)
@@ -384,7 +381,7 @@ class NovelGeneratorGUI:
         # 用户指导
         guide_label = ctk.CTkLabel(self.params_frame, text="本章指导:", font=("Microsoft YaHei", 12))
         guide_label.grid(row=5, column=0, padx=5, pady=5, sticky="ne")
-        self.user_guide_text = ctk.CTkTextbox(self.params_frame, width=200, height=80, wrap="word", font=("Microsoft YaHei", 12))
+        self.user_guide_text = ctk.CTkTextbox(self.params_frame,height=80, wrap="word", font=("Microsoft YaHei", 12))
         self.user_guide_text.grid(row=5, column=1, padx=5, pady=5, sticky="nsew")
 
         # 新增：四个可选元素
@@ -528,7 +525,7 @@ class NovelGeneratorGUI:
         logging.error(full_message)
         self.safe_log(full_message)
 
-    # ------------------ Step1: 生成架构 ------------------
+    # ============ Step1: 生成小说架构 ============
     def generate_novel_architecture_ui(self):
         filepath = self.filepath_var.get().strip()
         if not filepath:
@@ -568,7 +565,7 @@ class NovelGeneratorGUI:
 
         threading.Thread(target=task, daemon=True).start()
 
-    # ------------------ Step2: 生成章节蓝图 ------------------
+    # ============ Step2: 生成章节蓝图 ============
     def generate_chapter_blueprint_ui(self):
         filepath = self.filepath_var.get().strip()
         if not filepath:
@@ -599,7 +596,7 @@ class NovelGeneratorGUI:
 
         threading.Thread(target=task, daemon=True).start()
 
-    # ------------------ Step3: 生成草稿 ------------------
+    # ============ Step3: 生成章节草稿 ============
     def generate_chapter_draft_ui(self):
         filepath = self.filepath_var.get().strip()
         if not filepath:
@@ -671,7 +668,7 @@ class NovelGeneratorGUI:
         self.chapter_result.insert("0.0", text)
         self.chapter_result.see("end")
 
-    # ------------------ Step4: 定稿章节 ------------------
+    # ============ Step4: 定稿章节 ============
     def finalize_chapter_ui(self):
         filepath = self.filepath_var.get().strip()
         if not filepath:
@@ -731,7 +728,7 @@ class NovelGeneratorGUI:
 
         threading.Thread(target=task, daemon=True).start()
 
-    # ------------------ 一致性审校 ------------------
+    # ============ 一致性审校 (可选) ============
     def do_consistency_check(self):
         filepath = self.filepath_var.get().strip()
         if not filepath:
@@ -756,7 +753,7 @@ class NovelGeneratorGUI:
 
                 self.safe_log("开始一致性审校...")
                 result = check_consistency(
-                    novel_setting="",   # 如果需要，可传入最新的 Novel_architecture 内容
+                    novel_setting="",
                     character_state=read_file(os.path.join(filepath, "character_state.txt")),
                     global_summary=read_file(os.path.join(filepath, "global_summary.txt")),
                     chapter_text=chapter_text,
@@ -776,6 +773,7 @@ class NovelGeneratorGUI:
 
         threading.Thread(target=task, daemon=True).start()
 
+    # ============ 导入知识库 ============
     def import_knowledge_handler(self):
         selected_file = filedialog.askopenfilename(
             title="选择要导入的知识库文件",
@@ -847,7 +845,8 @@ class NovelGeneratorGUI:
         text_area.insert("0.0", arcs_text)
         text_area.configure(state="disabled")
 
-    # ------------------ 其他标签页: Novel Architecture, Chapter Blueprint, Character State, Summary ------------------
+    # ============ 其余标签页: Novel Architecture, Chapter Blueprint, Character State, Summary ============
+
     def build_setting_tab(self):
         self.setting_tab.rowconfigure(0, weight=0)
         self.setting_tab.rowconfigure(1, weight=1)
@@ -1032,7 +1031,7 @@ class NovelGeneratorGUI:
         save_string_to_txt(content, filename)
         self.log("已保存对 global_summary.txt 的修改。")
 
-    # ------------------ 章节管理标签页 ------------------
+    # ============ 章节管理标签页 ============
     def build_chapters_tab(self):
         self.chapters_view_tab.rowconfigure(0, weight=0)
         self.chapters_view_tab.rowconfigure(1, weight=1)
@@ -1164,7 +1163,6 @@ class NovelGeneratorGUI:
             self.load_chapter_content(self.chapters_list[new_idx])
         else:
             messagebox.showinfo("提示", "已经是最后一章了。")
-
 
 if __name__ == "__main__":
     app = ctk.CTk()
