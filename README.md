@@ -43,6 +43,32 @@
 
 ---
 
+
+## 📥 安装说明
+1. **下载项目**  
+   - 通过 [GitHub](https://github.com) 下载项目 ZIP 文件，或使用以下命令克隆本项目：
+     ```bash
+     git clone https://github.com/your-repo/project-name.git
+     ```
+
+2. **安装编译工具**  
+   - 访问 [Visual Studio Build Tools](https://visualstudio.microsoft.com/zh-hans/visual-cpp-build-tools/) 下载并安装编译工具。
+   - 安装时，默认只包含 MSBuild 工具，需手动勾选左上角列表栏中的 **C++ 桌面开发** 选项。
+
+3. **安装依赖并运行**  
+   - 打开终端，进入项目源文件目录：
+     ```bash
+     cd project-name
+     ```
+   - 安装项目依赖：
+     ```bash
+     pip install -r requirements.txt
+     ```
+   - 安装完成后，运行主程序：
+     ```bash
+     python main.py
+     ```
+     
 ## 🗂 项目架构
 ```
 novel-generator/
