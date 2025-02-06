@@ -29,6 +29,7 @@ from prompt_definitions import (
     world_building_prompt,
     plot_architecture_prompt,
     chapter_blueprint_prompt,
+    chunked_chapter_blueprint_prompt,
     summary_prompt,
     update_character_state_prompt,
     chapter_draft_prompt,
@@ -386,6 +387,8 @@ def Novel_architecture_generate(
     plot_arch_result = invoke_with_cleaning(llm_adapter, prompt_plot)
 
     final_content = (
+        "#=== 0) 小说设定 ===\n"
+        f"主题：{topic},类型：{genre},篇幅：约{number_of_chapters}章（每章{word_number}字）\n\n"
         "#=== 1) 核心种子 ===\n"
         f"{core_seed_result}\n\n"
         "#=== 2) 角色动力学 ===\n"
@@ -402,7 +405,29 @@ def Novel_architecture_generate(
     logging.info("Novel_architecture.txt has been generated successfully.")
 
 
-# ============ 2) 生成章节蓝图 ============
+# ============ 计算分块大小的工具函数 ============
+
+def compute_chunk_size(number_of_chapters: int, max_tokens: int) -> int:
+    """
+    基于“每章约100 tokens”的粗略估算，
+    再结合当前max_tokens，计算分块大小：
+      chunk_size = (floor(max_tokens/100/10)*10) - 10
+    并确保 chunk_size 不会小于1或大于实际章节数。
+    """
+    tokens_per_chapter = 100.0
+    ratio = max_tokens / tokens_per_chapter  # 8192 / 100 = 81.92
+    # 先取到最接近的10倍
+    ratio_rounded_to_10 = int(ratio // 10) * 10  # => 80
+    # 再减10
+    chunk_size = ratio_rounded_to_10 - 10  # => 70
+    if chunk_size < 1:
+        chunk_size = 1
+    if chunk_size > number_of_chapters:
+        chunk_size = number_of_chapters
+    return chunk_size
+
+
+# ============ 2) 生成章节蓝图（新增分块逻辑） ============
 
 def Chapter_blueprint_generate(
     interface_format: str,
@@ -410,9 +435,18 @@ def Chapter_blueprint_generate(
     base_url: str,
     llm_model: str,
     filepath: str,
+    number_of_chapters: int,
     temperature: float = 0.7,
     max_tokens: int = 2048
 ) -> None:
+    """
+    如果章节数小于等于 chunk_size，则直接使用 chapter_blueprint_prompt 一次性生成。
+    如果章节数较多，则进行分块生成：
+      1) 首先说明要生成的总章节数
+      2) 先生成 [1..chunk_size] 的章节
+      3) 将生成的文本作为已有目录传入，继续生成 [chunk_size+1..] 的章节
+      4) 最后汇总全部章节目录写入 Novel_directory.txt
+    """
     arch_file = os.path.join(filepath, "Novel_architecture.txt")
     if not os.path.exists(arch_file):
         logging.warning("Novel_architecture.txt not found. Please generate architecture first.")
@@ -423,19 +457,6 @@ def Chapter_blueprint_generate(
         logging.warning("Novel_architecture.txt is empty.")
         return
 
-    match_chaps = re.search(r'约(\d+)章', architecture_text)
-    if match_chaps:
-        number_of_chapters = int(match_chaps.group(1))
-    else:
-        number_of_chapters = 10
-
-    # 提取三幕式文本
-    plot_arch_text = ""
-    pat_plot = r'#=== 4\) 三幕式情节架构 ===\n([\s\S]+)$'
-    m = re.search(pat_plot, architecture_text)
-    if m:
-        plot_arch_text = m.group(1).strip()
-
     llm_adapter = create_llm_adapter(
         interface_format=interface_format,
         base_url=base_url,
@@ -445,20 +466,65 @@ def Chapter_blueprint_generate(
         max_tokens=max_tokens
     )
 
-    prompt = chapter_blueprint_prompt.format(
-        plot_architecture=plot_arch_text,
-        number_of_chapters=number_of_chapters
-    )
-    blueprint_text = invoke_with_cleaning(llm_adapter, prompt)
-    if not blueprint_text.strip():
-        logging.warning("Chapter blueprint generation result is empty.")
+    # 计算分块大小
+    chunk_size = compute_chunk_size(number_of_chapters, max_tokens)
+    logging.info(f"Number of chapters = {number_of_chapters}, computed chunk_size = {chunk_size}.")
+
+    # 如果一次就可以生成全部
+    if chunk_size >= number_of_chapters:
+        prompt = chapter_blueprint_prompt.format(
+            novel_architecture=architecture_text,
+            number_of_chapters=number_of_chapters
+        )
+        blueprint_text = invoke_with_cleaning(llm_adapter, prompt)
+        if not blueprint_text.strip():
+            logging.warning("Chapter blueprint generation result is empty.")
+            return
+
+        filename_dir = os.path.join(filepath, "Novel_directory.txt")
+        clear_file_content(filename_dir)
+        save_string_to_txt(blueprint_text, filename_dir)
+        logging.info("Novel_directory.txt (chapter blueprint) has been generated successfully (single-shot).")
+        return
+
+    # 否则，分块生成
+    final_blueprint = ""
+    current_start = 1
+    while current_start <= number_of_chapters:
+        current_end = min(current_start + chunk_size - 1, number_of_chapters)
+
+        # 分块提示
+        chunk_prompt = chunked_chapter_blueprint_prompt.format(
+            novel_architecture=architecture_text,
+            chapter_list=final_blueprint,      # 已有的章节列表文本
+            number_of_chapters=number_of_chapters,
+            n=current_start,
+            m=current_end
+        )
+        logging.info(f"Generating chapters [{current_start}..{current_end}] in a chunk...")
+
+        chunk_result = invoke_with_cleaning(llm_adapter, chunk_prompt)
+        if not chunk_result.strip():
+            logging.warning(f"Chunk generation for chapters [{current_start}..{current_end}] is empty.")
+            chunk_result = ""
+
+        # 将本次生成的文本拼接到最终结果中
+        if final_blueprint.strip():
+            final_blueprint += "\n\n" + chunk_result
+        else:
+            final_blueprint = chunk_result
+
+        current_start = current_end + 1
+
+    if not final_blueprint.strip():
+        logging.warning("All chunked generation results are empty, cannot create blueprint.")
         return
 
     filename_dir = os.path.join(filepath, "Novel_directory.txt")
     clear_file_content(filename_dir)
-    save_string_to_txt(blueprint_text, filename_dir)
+    save_string_to_txt(final_blueprint.strip(), filename_dir)
 
-    logging.info("Novel_directory.txt (chapter blueprint) has been generated successfully.")
+    logging.info("Novel_directory.txt (chapter blueprint) has been generated successfully (chunked).")
 
 
 # ============ 3) 生成章节草稿 ============
@@ -610,7 +676,7 @@ def finalize_chapter(
         logging.warning(f"Chapter {novel_number} is empty, cannot finalize.")
         return
 
-    if len(chapter_text) < 0.6 * word_number:
+    if len(chapter_text) < 0.7 * word_number:
         chapter_text = enrich_chapter_text(chapter_text, word_number, api_key, base_url, model_name, temperature, interface_format, max_tokens)
         clear_file_content(chapter_file)
         save_string_to_txt(chapter_text, chapter_file)

@@ -794,6 +794,7 @@ class NovelGeneratorGUI:
                 api_key = self.api_key_var.get().strip()
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
+                number_of_chapters = self.safe_get_int(self.num_chapters_var, 10)
                 temperature = self.temperature_var.get()
                 max_tokens = self.max_tokens_var.get()
 
@@ -803,6 +804,7 @@ class NovelGeneratorGUI:
                     api_key=api_key,
                     base_url=base_url,
                     llm_model=model_name,
+                    number_of_chapters=number_of_chapters,
                     filepath=filepath,
                     temperature=temperature,
                     max_tokens=max_tokens
