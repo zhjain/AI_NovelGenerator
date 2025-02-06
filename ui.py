@@ -7,111 +7,100 @@ import threading
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import traceback
+
 from config_manager import load_config, save_config
 from utils import read_file, save_string_to_txt, clear_file_content
+
 from novel_generator import (
-    Novel_setting_generate,
-    Novel_directory_generate,
+    Novel_architecture_generate,
+    Chapter_blueprint_generate,
     generate_chapter_draft,
     finalize_chapter,
     import_knowledge_file,
     clear_vector_store,
-    get_last_n_chapters_text,
-    summarize_recent_chapters
+    get_last_n_chapters_text
 )
 from consistency_checker import check_consistency
 
+# ---- Import the tooltip texts ----
+from tooltips import tooltips
 
 def log_error(message: str):
-    """
-    用于打印详细的错误信息和堆栈信息。
-    """
     logging.error(f"{message}\n{traceback.format_exc()}")
 
-
-# 设置全局主题和颜色
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
-
 
 class NovelGeneratorGUI:
     def __init__(self, master):
         self.master = master
         self.master.title("Novel Generator GUI")
 
-        # 防止因 icon.ico 不存在导致程序崩溃
         try:
             if os.path.exists("icon.ico"):
                 self.master.iconbitmap("icon.ico")
         except Exception:
             pass
 
-        # 配置窗口大小
         self.master.geometry("1350x840")
 
         # 配置持久化
         self.config_file = "config.json"
         self.loaded_config = load_config(self.config_file)
 
-        # ========== 主要的属性变量 ==========
-
-        # LLM 接口相关
+        # 主要属性变量
         self.api_key_var = ctk.StringVar(value=self.loaded_config.get("api_key", ""))
-        self.base_url_var = ctk.StringVar(value=self.loaded_config.get("base_url", "https://api.agicto.cn/v1"))
+        self.base_url_var = ctk.StringVar(value=self.loaded_config.get("base_url", "https://api.openai.com/v1"))
         self.interface_format_var = ctk.StringVar(value=self.loaded_config.get("interface_format", "OpenAI"))
         self.model_name_var = ctk.StringVar(value=self.loaded_config.get("model_name", "gpt-4o-mini"))
-
-        # 仍然用 DoubleVar，但因为是 Slider，不会让用户手动清空文本，一般不会出现空字符串问题
         self.temperature_var = ctk.DoubleVar(value=self.loaded_config.get("temperature", 0.7))
+        self.max_tokens_var = ctk.IntVar(value=self.loaded_config.get("max_tokens", 8192))
 
-        # Embedding 接口相关
+        # Embedding相关
         self.embedding_interface_format_var = ctk.StringVar(value=self.loaded_config.get("embedding_interface_format", "OpenAI"))
         self.embedding_api_key_var = ctk.StringVar(value=self.loaded_config.get("embedding_api_key", ""))
-        self.embedding_url_var = ctk.StringVar(value=self.loaded_config.get("embedding_url", ""))
-        self.embedding_model_name_var = ctk.StringVar(value=self.loaded_config.get("embedding_model_name", ""))
-
-        # ### CHANGED：将 IntVar 改为 StringVar，避免用户清空输入时抛错
+        self.embedding_url_var = ctk.StringVar(value=self.loaded_config.get("embedding_url", "https://api.openai.com/v1"))
+        self.embedding_model_name_var = ctk.StringVar(value=self.loaded_config.get("embedding_model_name", "text-embedding-ada-002"))
         self.embedding_retrieval_k_var = ctk.StringVar(value=str(self.loaded_config.get("embedding_retrieval_k", 4)))
 
-        # 小说通用参数
         self.topic_default = self.loaded_config.get("topic", "")
         self.genre_var = ctk.StringVar(value=self.loaded_config.get("genre", "玄幻"))
-
-        # ### CHANGED：将章节数、每章字数改为 StringVar
         self.num_chapters_var = ctk.StringVar(value=str(self.loaded_config.get("num_chapters", 10)))
         self.word_number_var = ctk.StringVar(value=str(self.loaded_config.get("word_number", 3000)))
-
         self.filepath_var = ctk.StringVar(value=self.loaded_config.get("filepath", ""))
 
-        # ### CHANGED：章节号也改为 StringVar
         self.chapter_num_var = ctk.StringVar(value="1")
 
-        # ========== 主容器使用 TabView ==========
-        self.tabview = ctk.CTkTabview(self.master, width=1200, height=800)
+        # 四个可选要素
+        self.characters_involved_var = ctk.StringVar(value="")
+        self.key_items_var = ctk.StringVar(value="")
+        self.scene_location_var = ctk.StringVar(value="")
+        self.time_constraint_var = ctk.StringVar(value="")
+
+        # UI 布局
+        self.tabview = ctk.CTkTabview(self.master)
         self.tabview.pack(fill="both", expand=True)
 
-        # 创建各个Tab
         self.main_tab = self.tabview.add("Main Functions")
-        self.setting_tab = self.tabview.add("Novel Settings")
-        self.directory_tab = self.tabview.add("Novel Directory")
+        self.setting_tab = self.tabview.add("Novel Architecture")
+        self.directory_tab = self.tabview.add("Chapter Blueprint")
         self.character_tab = self.tabview.add("Character State")
         self.summary_tab = self.tabview.add("Global Summary")
         self.chapters_view_tab = self.tabview.add("Chapters Manage")
 
-        # 构建各个 Tab 的布局
         self.build_main_tab()
         self.build_setting_tab()
         self.build_directory_tab()
         self.build_character_tab()
         self.build_summary_tab()
-        self.build_chapters_tab()  # 新增
+        self.build_chapters_tab()
 
-    # ------------------ 工具方法：安全获取 IntVar (现已兼容 StringVar) ------------------
+    def show_tooltip(self, key: str):
+        """Display a popup with tooltip text."""
+        info_text = tooltips.get(key, "暂无说明")
+        messagebox.showinfo("参数说明", info_text)
+
     def safe_get_int(self, var, default=1):
-        """
-        尝试把 StringVar 或 IntVar 中的值转换为 int；
-        若失败则将其重置为 default 并返回 default。
-        """
         try:
             val_str = str(var.get()).strip()
             return int(val_str)
@@ -119,102 +108,51 @@ class NovelGeneratorGUI:
             var.set(str(default))
             return default
 
-    # ------------------ 主功能 Tab ------------------
+    # ------------------ 主 Tab ------------------
     def build_main_tab(self):
-        """
-        主Tab分为左右两栏：
-          左侧：本章内容、Step按钮、日志
-          右侧：配置区域(带边框) + 保存/加载配置 + 小说参数 + 可选功能按钮
-        """
         self.main_tab.rowconfigure(0, weight=1)
         self.main_tab.columnconfigure(0, weight=1)
         self.main_tab.columnconfigure(1, weight=0)
 
-        # 左侧Frame
         self.left_frame = ctk.CTkFrame(self.main_tab)
         self.left_frame.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
-
-        # 右侧Frame
         self.right_frame = ctk.CTkFrame(self.main_tab)
         self.right_frame.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
 
-        # 左侧布局
         self.build_left_layout()
-        # 右侧布局
         self.build_right_layout()
 
     def build_left_layout(self):
-        """
-        左侧布局:
-         row=0 -> “本章内容”文本框 (chapter_result)
-         row=1 -> Step1~4按钮
-         row=2 -> “输出日志”标题
-         row=3 -> “输出日志”文本框 (log_text)
-        """
         self.left_frame.grid_rowconfigure(0, weight=0)
         self.left_frame.grid_rowconfigure(1, weight=2)
         self.left_frame.grid_rowconfigure(2, weight=0)
         self.left_frame.grid_rowconfigure(3, weight=0)
         self.left_frame.grid_rowconfigure(4, weight=1)
-        self.left_frame.grid_columnconfigure(0, weight=1)
+        self.left_frame.columnconfigure(0, weight=1)
 
-        # ========== 本章内容 ==========
-        chapter_label = ctk.CTkLabel(
-            self.left_frame,
-            text="本章内容 (可编辑)",
-            font=("Microsoft YaHei", 12)
-        )
+        chapter_label = ctk.CTkLabel(self.left_frame, text="本章内容 (可编辑)", font=("Microsoft YaHei", 12))
         chapter_label.grid(row=0, column=0, padx=5, pady=(5, 0), sticky="w")
 
-        # 章节草稿：可编辑
-        self.chapter_result = ctk.CTkTextbox(
-            self.left_frame,
-            wrap="word",
-            font=("Microsoft YaHei", 14)
-        )
+        self.chapter_result = ctk.CTkTextbox(self.left_frame, wrap="word", font=("Microsoft YaHei", 14))
         self.chapter_result.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 5))
 
-        # ========== Step1~4按钮 ==========
-        self.build_step_buttons_area()
-
-        # ========== 输出日志 label ==========
-        log_label = ctk.CTkLabel(
-            self.left_frame,
-            text="输出日志 (只读)",
-            font=("Microsoft YaHei", 12)
-        )
-        log_label.grid(row=3, column=0, padx=5, pady=(5, 0), sticky="w")
-
-        # ========== 日志：只读 ==========
-        self.log_text = ctk.CTkTextbox(
-            self.left_frame,
-            wrap="word",
-            font=("Microsoft YaHei", 12)
-        )
-        self.log_text.grid(row=4, column=0, sticky="nsew", padx=5, pady=(0, 5))
-        self.log_text.configure(state="disabled")
-
-    def build_step_buttons_area(self):
-        """
-        在左侧，仅放 Step1~Step4 四个按钮
-        """
+        # Step 按钮区域
         self.step_buttons_frame = ctk.CTkFrame(self.left_frame)
         self.step_buttons_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
-        # 四个按钮平分横向空间
         self.step_buttons_frame.columnconfigure((0, 1, 2, 3), weight=1)
 
-        self.btn_generate_setting = ctk.CTkButton(
+        self.btn_generate_architecture = ctk.CTkButton(
             self.step_buttons_frame,
-            text="Step1. 生成设定",
-            command=self.generate_novel_setting_ui,
+            text="Step1. 生成架构",
+            command=self.generate_novel_architecture_ui,
             font=("Microsoft YaHei", 12)
         )
-        self.btn_generate_setting.grid(row=0, column=0, padx=5, pady=2, sticky="ew")
+        self.btn_generate_architecture.grid(row=0, column=0, padx=5, pady=2, sticky="ew")
 
         self.btn_generate_directory = ctk.CTkButton(
             self.step_buttons_frame,
             text="Step2. 生成目录",
-            command=self.generate_novel_directory_ui,
+            command=self.generate_chapter_blueprint_ui,
             font=("Microsoft YaHei", 12)
         )
         self.btn_generate_directory.grid(row=0, column=1, padx=5, pady=2, sticky="ew")
@@ -235,42 +173,451 @@ class NovelGeneratorGUI:
         )
         self.btn_finalize_chapter.grid(row=0, column=3, padx=5, pady=2, sticky="ew")
 
+        # 日志
+        log_label = ctk.CTkLabel(self.left_frame, text="输出日志 (只读)", font=("Microsoft YaHei", 12))
+        log_label.grid(row=3, column=0, padx=5, pady=(5, 0), sticky="w")
+
+        self.log_text = ctk.CTkTextbox(self.left_frame, wrap="word", font=("Microsoft YaHei", 12))
+        self.log_text.grid(row=4, column=0, sticky="nsew", padx=5, pady=(0, 5))
+        self.log_text.configure(state="disabled")
+
     def build_right_layout(self):
-        """
-        右侧布局，包含：
-          row=0 -> 带边框的配置区 (TabView + 保存/加载配置按钮)
-          row=1 -> 小说参数区域
-          row=2 -> 可选功能按钮 (一致性审校 / 导入知识库 / 清空向量库 / 查看剧情要点)
-        """
         self.right_frame.grid_rowconfigure(0, weight=0)
         self.right_frame.grid_rowconfigure(1, weight=1)
         self.right_frame.grid_rowconfigure(2, weight=0)
         self.right_frame.columnconfigure(0, weight=1)
 
-        # 1) 配置区
-        self.config_frame = ctk.CTkFrame(
-            self.right_frame,
-            corner_radius=10,
-            border_width=2,
-            border_color="gray"
-        )
+        # 配置区
+        self.config_frame = ctk.CTkFrame(self.right_frame, corner_radius=10, border_width=2, border_color="gray")
         self.config_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
         self.config_frame.columnconfigure(0, weight=1)
 
-        self.build_config_tabview()       # LLM、Embedding等配置
-        self.build_main_buttons_area()    # 保存/加载配置按钮
+        self.build_config_tabview()
+        self.build_main_buttons_area()
 
-        # 2) 小说参数
+        # 小说参数
         self.build_novel_params_area(start_row=1)
 
-        # 3) 可选功能按钮
+        # 可选功能按钮
         self.build_optional_buttons_area(start_row=2)
 
-    # ------------------ 可选功能按钮区域（右下） ------------------
+    def build_config_tabview(self):
+        self.config_tabview = ctk.CTkTabview(self.config_frame)
+        self.config_tabview.grid(row=0, column=0, sticky="we", padx=5, pady=5)
+
+        self.ai_config_tab = self.config_tabview.add("LLM Model settings")
+        self.embeddings_config_tab = self.config_tabview.add("Embedding settings")
+
+        self.build_ai_config_tab()
+        self.build_embeddings_config_tab()
+
+    # 封装一个小工具函数，用来创建「标签 + 问号按钮」的组合
+    def create_label_with_help(self, parent, label_text, tooltip_key, row, column, font=None, sticky="e", padx=5, pady=5):
+        # frame容器：同一格子里存放 label + "?"按钮
+        frame = ctk.CTkFrame(parent)
+        frame.grid(row=row, column=column, padx=padx, pady=pady, sticky=sticky)
+        frame.columnconfigure(0, weight=0)
+        # 先放 label
+        label = ctk.CTkLabel(frame, text=label_text, font=font)
+        label.pack(side="left")
+        # 再放问号按钮
+        btn = ctk.CTkButton(
+            frame,
+            text="?",
+            width=22,
+            height=22,
+            font=("Microsoft YaHei", 10),
+            command=lambda: self.show_tooltip(tooltip_key)
+        )
+        btn.pack(side="left", padx=3)
+        return frame
+
+    def build_ai_config_tab(self):
+        def on_interface_format_changed(new_value):
+            if new_value == "Ollama":
+                self.base_url_var.set("http://localhost:11434/v1")
+            elif new_value == "ML Studio":
+                self.base_url_var.set("http://localhost:1234/v1")
+            elif new_value == "OpenAI":
+                self.base_url_var.set("https://api.openai.com/v1")
+            elif new_value == "DeepSeek":
+                self.base_url_var.set("https://api.deepseek.com/v1")
+
+        for i in range(6):
+            self.ai_config_tab.grid_rowconfigure(i, weight=0)
+        self.ai_config_tab.grid_columnconfigure(0, weight=0)
+        self.ai_config_tab.grid_columnconfigure(1, weight=1)
+        self.ai_config_tab.grid_columnconfigure(2, weight=0)
+
+        # 1) API Key
+        self.create_label_with_help(
+            parent=self.ai_config_tab,
+            label_text="LLM API Key:",
+            tooltip_key="api_key",
+            row=0,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        api_key_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.api_key_var, font=("Microsoft YaHei", 12))
+        api_key_entry.grid(row=0, column=1, padx=5, pady=5, columnspan=2, sticky="nsew")
+
+        # 2) Base URL
+        self.create_label_with_help(
+            parent=self.ai_config_tab,
+            label_text="LLM Base URL:",
+            tooltip_key="base_url",
+            row=1,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        base_url_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.base_url_var, font=("Microsoft YaHei", 12))
+        base_url_entry.grid(row=1, column=1, padx=5, pady=5, columnspan=2, sticky="nsew")
+
+        # 3) 接口格式
+        label_frame = self.create_label_with_help(
+            parent=self.ai_config_tab,
+            label_text="LLM 接口格式:",
+            tooltip_key="interface_format",
+            row=2,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        interface_options = ["DeepSeek", "OpenAI", "Ollama", "ML Studio"]
+        interface_dropdown = ctk.CTkOptionMenu(
+            self.ai_config_tab,
+            values=interface_options,
+            variable=self.interface_format_var,
+            command=on_interface_format_changed,
+            font=("Microsoft YaHei", 12)
+        )
+        interface_dropdown.grid(row=2, column=1, padx=5, pady=5, columnspan=2, sticky="nsew")
+
+        # 4) Model Name
+        self.create_label_with_help(
+            parent=self.ai_config_tab,
+            label_text="Model Name:",
+            tooltip_key="model_name",
+            row=3,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        model_name_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.model_name_var, font=("Microsoft YaHei", 12))
+        model_name_entry.grid(row=3, column=1, padx=5, pady=5, columnspan=2, sticky="nsew")
+
+        # 5) Temperature
+        temp_frame = self.create_label_with_help(
+            parent=self.ai_config_tab,
+            label_text="Temperature:",
+            tooltip_key="temperature",
+            row=4,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+
+        def update_temp_label(value):
+            self.temp_value_label.configure(text=f"{float(value):.2f}")
+
+        temp_scale = ctk.CTkSlider(
+            self.ai_config_tab,
+            from_=0.0, to=2.0,
+            number_of_steps=200,
+            command=update_temp_label,
+            variable=self.temperature_var
+        )
+        temp_scale.grid(row=4, column=1, padx=5, pady=5, sticky="we")
+
+        self.temp_value_label = ctk.CTkLabel(
+            self.ai_config_tab,
+            text=f"{self.temperature_var.get():.2f}",
+            font=("Microsoft YaHei", 12)
+        )
+        self.temp_value_label.grid(row=4, column=2, padx=5, pady=5, sticky="w")
+
+        # 6) Max Tokens
+        self.create_label_with_help(
+            parent=self.ai_config_tab,
+            label_text="Max Tokens:",
+            tooltip_key="max_tokens",
+            row=5,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+
+        def update_max_tokens_label(value):
+            self.max_tokens_value_label.configure(text=str(int(float(value))))
+
+        max_tokens_slider = ctk.CTkSlider(
+            self.ai_config_tab,
+            from_=0,
+            to=102400,
+            number_of_steps=100,
+            command=update_max_tokens_label,
+            variable=self.max_tokens_var
+        )
+        max_tokens_slider.grid(row=5, column=1, padx=5, pady=5, sticky="we")
+
+        self.max_tokens_value_label = ctk.CTkLabel(
+            self.ai_config_tab,
+            text=str(self.max_tokens_var.get()),
+            font=("Microsoft YaHei", 12)
+        )
+        self.max_tokens_value_label.grid(row=5, column=2, padx=5, pady=5, sticky="w")
+
+    def build_embeddings_config_tab(self):
+        def on_embedding_interface_changed(new_value):
+            if new_value == "Ollama":
+                self.embedding_url_var.set("http://localhost:11434/api")
+            elif new_value == "ML Studio":
+                self.embedding_url_var.set("http://localhost:1234/v1")
+            elif new_value == "OpenAI":
+                self.embedding_url_var.set("https://api.openai.com/v1")
+            elif new_value == "DeepSeek":
+                self.embedding_url_var.set("https://api.deepseek.com/v1")
+
+        for i in range(5):
+            self.embeddings_config_tab.grid_rowconfigure(i, weight=0)
+        self.embeddings_config_tab.grid_columnconfigure(0, weight=0)
+        self.embeddings_config_tab.grid_columnconfigure(1, weight=1)
+        self.embeddings_config_tab.grid_columnconfigure(2, weight=0)
+
+        # 1) Embedding API Key
+        self.create_label_with_help(
+            parent=self.embeddings_config_tab,
+            label_text="Embedding API Key:",
+            tooltip_key="embedding_api_key",
+            row=0,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        emb_api_key_entry = ctk.CTkEntry(self.embeddings_config_tab, textvariable=self.embedding_api_key_var, font=("Microsoft YaHei", 12))
+        emb_api_key_entry.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+
+        # 2) Embedding 接口格式
+        self.create_label_with_help(
+            parent=self.embeddings_config_tab,
+            label_text="Embedding 接口格式:",
+            tooltip_key="embedding_interface_format",
+            row=1,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        emb_interface_options = ["DeepSeek", "OpenAI", "Ollama", "ML Studio"]
+        emb_interface_dropdown = ctk.CTkOptionMenu(
+            self.embeddings_config_tab,
+            values=emb_interface_options,
+            variable=self.embedding_interface_format_var,
+            command=on_embedding_interface_changed,
+            font=("Microsoft YaHei", 12)
+        )
+        emb_interface_dropdown.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
+
+        # 3) Embedding Base URL
+        self.create_label_with_help(
+            parent=self.embeddings_config_tab,
+            label_text="Embedding Base URL:",
+            tooltip_key="embedding_url",
+            row=2,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        emb_url_entry = ctk.CTkEntry(self.embeddings_config_tab, textvariable=self.embedding_url_var, font=("Microsoft YaHei", 12))
+        emb_url_entry.grid(row=2, column=1, padx=5, pady=5, sticky="nsew")
+
+        # 4) Embedding Model Name
+        self.create_label_with_help(
+            parent=self.embeddings_config_tab,
+            label_text="Embedding Model Name:",
+            tooltip_key="embedding_model_name",
+            row=3,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        emb_model_name_entry = ctk.CTkEntry(self.embeddings_config_tab, textvariable=self.embedding_model_name_var, font=("Microsoft YaHei", 12))
+        emb_model_name_entry.grid(row=3, column=1, padx=5, pady=5, sticky="nsew")
+
+        # 5) Retrieval Top-K
+        self.create_label_with_help(
+            parent=self.embeddings_config_tab,
+            label_text="Retrieval Top-K:",
+            tooltip_key="embedding_retrieval_k",
+            row=4,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        emb_retrieval_k_entry = ctk.CTkEntry(self.embeddings_config_tab, textvariable=self.embedding_retrieval_k_var, font=("Microsoft YaHei", 12))
+        emb_retrieval_k_entry.grid(row=4, column=1, padx=5, pady=5, sticky="nsew")
+
+    def build_main_buttons_area(self):
+        self.btn_frame_config = ctk.CTkFrame(self.config_frame)
+        self.btn_frame_config.grid(row=1, column=0, padx=5, pady=5, sticky="ew")
+        self.btn_frame_config.columnconfigure(0, weight=1)
+        self.btn_frame_config.columnconfigure(1, weight=1)
+
+        save_config_btn = ctk.CTkButton(self.btn_frame_config, text="保存配置", command=self.save_config_btn, font=("Microsoft YaHei", 12))
+        save_config_btn.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+
+        load_config_btn = ctk.CTkButton(self.btn_frame_config, text="加载配置", command=self.load_config_btn, font=("Microsoft YaHei", 12))
+        load_config_btn.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+
+    def build_novel_params_area(self, start_row=1):
+        self.params_frame = ctk.CTkScrollableFrame(self.right_frame, orientation="vertical")
+        self.params_frame.grid(row=start_row, column=0, sticky="nsew", padx=5, pady=5)
+        self.params_frame.columnconfigure(1, weight=1)
+
+        # 1) 主题(Topic)
+        topic_label_frame = self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="主题(Topic):",
+            tooltip_key="topic",
+            row=0,
+            column=0,
+            font=("Microsoft YaHei", 12),
+            sticky="ne"
+        )
+        self.topic_text = ctk.CTkTextbox(self.params_frame, height=80, wrap="word", font=("Microsoft YaHei", 12))
+        self.topic_text.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+        if self.topic_default:
+            self.topic_text.insert("0.0", self.topic_default)
+
+        # 2) 类型(Genre)
+        self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="类型(Genre):",
+            tooltip_key="genre",
+            row=1,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        genre_entry = ctk.CTkEntry(self.params_frame, textvariable=self.genre_var, font=("Microsoft YaHei", 12))
+        genre_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+
+        # 3) 章节数 & 每章字数
+        row_for_chapter_and_word = 2
+        chapter_word_frame = ctk.CTkFrame(self.params_frame)
+        chapter_word_frame.grid(row=row_for_chapter_and_word, column=1, padx=5, pady=5, sticky="ew")
+        chapter_word_frame.columnconfigure((0, 1, 2, 3), weight=0)
+
+        # 左边标签
+        label_frame = self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="章节数 & 每章字数:",
+            tooltip_key="num_chapters",
+            row=row_for_chapter_and_word,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+
+        # 输入框
+        num_chapters_label = ctk.CTkLabel(chapter_word_frame, text="章节数:", font=("Microsoft YaHei", 12))
+        num_chapters_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        num_chapters_entry = ctk.CTkEntry(chapter_word_frame, textvariable=self.num_chapters_var, width=60, font=("Microsoft YaHei", 12))
+        num_chapters_entry.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+
+        word_number_label = ctk.CTkLabel(chapter_word_frame, text="每章字数:", font=("Microsoft YaHei", 12))
+        word_number_label.grid(row=0, column=2, padx=(15, 5), pady=5, sticky="e")
+        word_number_entry = ctk.CTkEntry(chapter_word_frame, textvariable=self.word_number_var, width=60, font=("Microsoft YaHei", 12))
+        word_number_entry.grid(row=0, column=3, padx=5, pady=5, sticky="w")
+
+        # 4) 保存路径
+        row_fp = 3
+        self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="保存路径:",
+            tooltip_key="filepath",
+            row=row_fp,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        self.filepath_frame = ctk.CTkFrame(self.params_frame)
+        self.filepath_frame.grid(row=row_fp, column=1, padx=5, pady=5, sticky="nsew")
+        self.filepath_frame.columnconfigure(0, weight=1)
+
+        filepath_entry = ctk.CTkEntry(self.filepath_frame, textvariable=self.filepath_var, font=("Microsoft YaHei", 12))
+        filepath_entry.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+        browse_btn = ctk.CTkButton(self.filepath_frame, text="浏览...", command=self.browse_folder, width=60, font=("Microsoft YaHei", 12))
+        browse_btn.grid(row=0, column=1, padx=5, pady=5, sticky="e")
+
+        # 5) 章节号
+        row_chap_num = 4
+        self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="章节号:",
+            tooltip_key="chapter_num",
+            row=row_chap_num,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        chapter_num_entry = ctk.CTkEntry(self.params_frame, textvariable=self.chapter_num_var, width=80, font=("Microsoft YaHei", 12))
+        chapter_num_entry.grid(row=row_chap_num, column=1, padx=5, pady=5, sticky="w")
+
+        # 6) 本章指导
+        row_user_guide = 5
+        guide_label_frame = self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="本章指导:",
+            tooltip_key="user_guidance",
+            row=row_user_guide,
+            column=0,
+            font=("Microsoft YaHei", 12),
+            sticky="ne"
+        )
+        self.user_guide_text = ctk.CTkTextbox(self.params_frame, height=80, wrap="word", font=("Microsoft YaHei", 12))
+        self.user_guide_text.grid(row=row_user_guide, column=1, padx=5, pady=5, sticky="nsew")
+
+        # 7) 可选元素：核心人物/关键道具/空间坐标/时间压力
+        row_idx = 6
+        # 核心人物
+        self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="核心人物:",
+            tooltip_key="characters_involved",
+            row=row_idx,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        char_inv_entry = ctk.CTkEntry(self.params_frame, textvariable=self.characters_involved_var, font=("Microsoft YaHei", 12))
+        char_inv_entry.grid(row=row_idx, column=1, padx=5, pady=5, sticky="ew")
+        row_idx += 1
+
+        # 关键道具
+        self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="关键道具:",
+            tooltip_key="key_items",
+            row=row_idx,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        key_items_entry = ctk.CTkEntry(self.params_frame, textvariable=self.key_items_var, font=("Microsoft YaHei", 12))
+        key_items_entry.grid(row=row_idx, column=1, padx=5, pady=5, sticky="ew")
+        row_idx += 1
+
+        # 空间坐标
+        self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="空间坐标:",
+            tooltip_key="scene_location",
+            row=row_idx,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        scene_loc_entry = ctk.CTkEntry(self.params_frame, textvariable=self.scene_location_var, font=("Microsoft YaHei", 12))
+        scene_loc_entry.grid(row=row_idx, column=1, padx=5, pady=5, sticky="ew")
+        row_idx += 1
+
+        # 时间压力
+        self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="时间压力:",
+            tooltip_key="time_constraint",
+            row=row_idx,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        time_const_entry = ctk.CTkEntry(self.params_frame, textvariable=self.time_constraint_var, font=("Microsoft YaHei", 12))
+        time_const_entry.grid(row=row_idx, column=1, padx=5, pady=5, sticky="ew")
+
     def build_optional_buttons_area(self, start_row=2):
-        """
-        放在右侧的最下方：包括 一致性审校、导入知识库、清空向量库、查看剧情要点
-        """
         self.optional_btn_frame = ctk.CTkFrame(self.right_frame)
         self.optional_btn_frame.grid(row=start_row, column=0, sticky="ew", padx=5, pady=5)
         self.optional_btn_frame.columnconfigure((0, 1, 2, 3), weight=1)
@@ -308,363 +655,418 @@ class NovelGeneratorGUI:
         )
         self.plot_arcs_btn.grid(row=0, column=3, padx=5, pady=5, sticky="ew")
 
-    # ========== 配置区域（TabView） ==========
-    def build_config_tabview(self):
-        self.config_tabview = ctk.CTkTabview(self.config_frame, width=600, height=200)
-        self.config_tabview.grid(row=0, column=0, sticky="we", padx=5, pady=5)
+    def load_config_btn(self):
+        cfg = load_config(self.config_file)
+        if cfg:
+            self.api_key_var.set(cfg.get("api_key", ""))
+            self.base_url_var.set(cfg.get("base_url", ""))
+            self.interface_format_var.set(cfg.get("interface_format", "OpenAI"))
+            self.model_name_var.set(cfg.get("model_name", ""))
+            self.temperature_var.set(cfg.get("temperature", 0.7))
+            self.max_tokens_var.set(cfg.get("max_tokens", 2048))
 
-        self.ai_config_tab = self.config_tabview.add("LLM Model settings")
-        self.embeddings_config_tab = self.config_tabview.add("Embedding settings")
+            self.embedding_api_key_var.set(cfg.get("embedding_api_key", ""))
+            self.embedding_interface_format_var.set(cfg.get("embedding_interface_format", "OpenAI"))
+            self.embedding_url_var.set(cfg.get("embedding_url", ""))
+            self.embedding_model_name_var.set(cfg.get("embedding_model_name", ""))
+            self.embedding_retrieval_k_var.set(str(cfg.get("embedding_retrieval_k", 4)))
 
-        self.build_ai_config_tab()
-        self.build_embeddings_config_tab()
+            self.genre_var.set(cfg.get("genre", ""))
+            self.num_chapters_var.set(str(cfg.get("num_chapters", 10)))
+            self.word_number_var.set(str(cfg.get("word_number", 3000)))
+            self.filepath_var.set(cfg.get("filepath", ""))
 
-    def build_ai_config_tab(self):
-        def on_interface_format_changed(new_value):
-            if new_value == "Ollama":
-                self.base_url_var.set("http://localhost:11434/v1")
-            elif new_value == "ML Studio":
-                self.base_url_var.set("http://localhost:1234/v1")
-            elif new_value == "OpenAI":
-                self.base_url_var.set("https://api.openai.com/v1")
+            topic_value = cfg.get("topic", "")
+            self.topic_text.delete("0.0", "end")
+            self.topic_text.insert("0.0", topic_value)
 
-        for i in range(5):
-            self.ai_config_tab.grid_rowconfigure(i, weight=0)
-        self.ai_config_tab.grid_columnconfigure(0, weight=0)
-        self.ai_config_tab.grid_columnconfigure(1, weight=1)
-        self.ai_config_tab.grid_columnconfigure(2, weight=0)  # for temp label
+            self.log("已加载配置。")
+        else:
+            messagebox.showwarning("提示", "未找到或无法读取配置文件。")
 
-        api_key_label = ctk.CTkLabel(
-            self.ai_config_tab,
-            text="LLM API Key:",
-            font=("Microsoft YaHei", 12)
-        )
-        api_key_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        api_key_entry = ctk.CTkEntry(
-            self.ai_config_tab,
-            textvariable=self.api_key_var,
-            font=("Microsoft YaHei", 12)
-        )
-        api_key_entry.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+    def save_config_btn(self):
+        config_data = {
+            "api_key": self.api_key_var.get(),
+            "base_url": self.base_url_var.get(),
+            "interface_format": self.interface_format_var.get(),
+            "model_name": self.model_name_var.get(),
+            "temperature": self.temperature_var.get(),
+            "max_tokens": self.max_tokens_var.get(),
 
-        base_url_label = ctk.CTkLabel(
-            self.ai_config_tab,
-            text="LLM Base URL:",
-            font=("Microsoft YaHei", 12)
-        )
-        base_url_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
-        base_url_entry = ctk.CTkEntry(
-            self.ai_config_tab,
-            textvariable=self.base_url_var,
-            font=("Microsoft YaHei", 12)
-        )
-        base_url_entry.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
+            "embedding_api_key": self.embedding_api_key_var.get(),
+            "embedding_interface_format": self.embedding_interface_format_var.get(),
+            "embedding_url": self.embedding_url_var.get(),
+            "embedding_model_name": self.embedding_model_name_var.get(),
+            "embedding_retrieval_k": self.safe_get_int(self.embedding_retrieval_k_var, 4),
 
-        interface_label = ctk.CTkLabel(
-            self.ai_config_tab,
-            text="LLM 接口格式:",
-            font=("Microsoft YaHei", 12)
-        )
-        interface_label.grid(row=2, column=0, padx=5, pady=5, sticky="e")
-        interface_options = ["OpenAI", "Ollama", "ML Studio"]
-        interface_dropdown = ctk.CTkOptionMenu(
-            self.ai_config_tab,
-            values=interface_options,
-            variable=self.interface_format_var,
-            command=on_interface_format_changed,
-            font=("Microsoft YaHei", 12)
-        )
-        interface_dropdown.grid(row=2, column=1, padx=5, pady=5, sticky="nsew")
+            "topic": self.topic_text.get("0.0", "end").strip(),
+            "genre": self.genre_var.get(),
+            "num_chapters": self.safe_get_int(self.num_chapters_var, 10),
+            "word_number": self.safe_get_int(self.word_number_var, 3000),
+            "filepath": self.filepath_var.get()
+        }
+        if save_config(config_data, self.config_file):
+            messagebox.showinfo("提示", "配置已保存至 config.json")
+            self.log("配置已保存。")
+        else:
+            messagebox.showerror("错误", "保存配置失败。")
 
-        model_name_label = ctk.CTkLabel(
-            self.ai_config_tab,
-            text="Model Name:",
-            font=("Microsoft YaHei", 12)
-        )
-        model_name_label.grid(row=3, column=0, padx=5, pady=5, sticky="e")
-        model_name_entry = ctk.CTkEntry(
-            self.ai_config_tab,
-            textvariable=self.model_name_var,
-            font=("Microsoft YaHei", 12)
-        )
-        model_name_entry.grid(row=3, column=1, padx=5, pady=5, sticky="nsew")
+    def browse_folder(self):
+        selected_dir = filedialog.askdirectory()
+        if selected_dir:
+            self.filepath_var.set(selected_dir)
 
-        temp_label = ctk.CTkLabel(
-            self.ai_config_tab,
-            text="Temperature:",
-            font=("Microsoft YaHei", 12)
-        )
-        temp_label.grid(row=4, column=0, padx=5, pady=5, sticky="e")
+    def log(self, message: str):
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", message + "\n")
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
 
-        def update_temp_label(value):
-            self.temp_value_label.configure(text=f"{float(value):.2f}")
+    def safe_log(self, message: str):
+        self.master.after(0, lambda: self.log(message))
 
-        temp_scale = ctk.CTkSlider(
-            self.ai_config_tab,
-            from_=0.0, to=1.0,
-            number_of_steps=100,
-            command=update_temp_label,
-            variable=self.temperature_var
-        )
-        temp_scale.grid(row=4, column=1, padx=5, pady=5, sticky="we")
+    def disable_button_safe(self, btn):
+        self.master.after(0, lambda: btn.configure(state="disabled"))
 
-        self.temp_value_label = ctk.CTkLabel(
-            self.ai_config_tab,
-            text=f"{self.temperature_var.get():.2f}",
-            font=("Microsoft YaHei", 12)
-        )
-        self.temp_value_label.grid(row=4, column=2, padx=1, pady=1, sticky="w")
+    def enable_button_safe(self, btn):
+        self.master.after(0, lambda: btn.configure(state="normal"))
 
-    def build_embeddings_config_tab(self):
-        def on_embedding_interface_changed(new_value):
-            if new_value == "Ollama":
-                self.embedding_url_var.set("http://localhost:11434/api")
-            elif new_value == "ML Studio":
-                self.embedding_url_var.set("http://localhost:1234/v1")
-            elif new_value == "OpenAI":
-                self.embedding_url_var.set("https://api.openai.com/v1")
+    def handle_exception(self, context: str):
+        full_message = f"{context}\n{traceback.format_exc()}"
+        logging.error(full_message)
+        self.safe_log(full_message)
 
-        for i in range(5):
-            self.embeddings_config_tab.grid_rowconfigure(i, weight=0)
-        self.embeddings_config_tab.grid_columnconfigure(0, weight=0)
-        self.embeddings_config_tab.grid_columnconfigure(1, weight=1)
+    # ============ Step1: 生成小说架构 ============
+    def generate_novel_architecture_ui(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先选择保存文件路径")
+            return
 
-        emb_api_key_label = ctk.CTkLabel(
-            self.embeddings_config_tab,
-            text="Embedding API Key:",
-            font=("Microsoft YaHei", 12)
-        )
-        emb_api_key_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        emb_api_key_entry = ctk.CTkEntry(
-            self.embeddings_config_tab,
-            textvariable=self.embedding_api_key_var,
-            font=("Microsoft YaHei", 12)
-        )
-        emb_api_key_entry.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+        def task():
+            self.disable_button_safe(self.btn_generate_architecture)
+            try:
+                interface_format = self.interface_format_var.get().strip()
+                api_key = self.api_key_var.get().strip()
+                base_url = self.base_url_var.get().strip()
+                model_name = self.model_name_var.get().strip()
+                temperature = self.temperature_var.get()
+                max_tokens = self.max_tokens_var.get()
 
-        emb_interface_label = ctk.CTkLabel(
-            self.embeddings_config_tab,
-            text="Embedding 接口格式:",
-            font=("Microsoft YaHei", 12)
-        )
-        emb_interface_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
-        emb_interface_options = ["OpenAI", "Ollama", "ML Studio"]
-        emb_interface_dropdown = ctk.CTkOptionMenu(
-            self.embeddings_config_tab,
-            values=emb_interface_options,
-            variable=self.embedding_interface_format_var,
-            command=on_embedding_interface_changed,
-            font=("Microsoft YaHei", 12)
-        )
-        emb_interface_dropdown.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
+                topic = self.topic_text.get("0.0", "end").strip()
+                genre = self.genre_var.get().strip()
+                num_chapters = self.safe_get_int(self.num_chapters_var, 10)
+                word_number = self.safe_get_int(self.word_number_var, 3000)
 
-        emb_url_label = ctk.CTkLabel(
-            self.embeddings_config_tab,
-            text="Embedding Base URL:",
-            font=("Microsoft YaHei", 12)
-        )
-        emb_url_label.grid(row=2, column=0, padx=5, pady=5, sticky="e")
-        emb_url_entry = ctk.CTkEntry(
-            self.embeddings_config_tab,
-            textvariable=self.embedding_url_var,
-            font=("Microsoft YaHei", 12)
-        )
-        emb_url_entry.grid(row=2, column=1, padx=5, pady=5, sticky="nsew")
+                self.safe_log("开始生成小说架构...")
+                Novel_architecture_generate(
+                    interface_format=interface_format,
+                    api_key=api_key,
+                    base_url=base_url,
+                    llm_model=model_name,
+                    topic=topic,
+                    genre=genre,
+                    number_of_chapters=num_chapters,
+                    word_number=word_number,
+                    filepath=filepath,
+                    temperature=temperature,
+                    max_tokens=max_tokens
+                )
+                self.safe_log("✅ 小说架构生成完成。请在 'Novel Architecture' 标签页查看或编辑。")
+            except Exception:
+                self.handle_exception("生成小说架构时出错")
+            finally:
+                self.enable_button_safe(self.btn_generate_architecture)
 
-        emb_model_name_label = ctk.CTkLabel(
-            self.embeddings_config_tab,
-            text="Embedding Model Name:",
-            font=("Microsoft YaHei", 12)
-        )
-        emb_model_name_label.grid(row=3, column=0, padx=5, pady=5, sticky="e")
-        emb_model_name_entry = ctk.CTkEntry(
-            self.embeddings_config_tab,
-            textvariable=self.embedding_model_name_var,
-            font=("Microsoft YaHei", 12)
-        )
-        emb_model_name_entry.grid(row=3, column=1, padx=5, pady=5, sticky="nsew")
+        threading.Thread(target=task, daemon=True).start()
 
-        emb_retrieval_k_label = ctk.CTkLabel(
-            self.embeddings_config_tab,
-            text="Retrieval Top-K:",
-            font=("Microsoft YaHei", 12)
-        )
-        emb_retrieval_k_label.grid(row=4, column=0, padx=5, pady=5, sticky="e")
-        emb_retrieval_k_entry = ctk.CTkEntry(
-            self.embeddings_config_tab,
-            textvariable=self.embedding_retrieval_k_var,
-            font=("Microsoft YaHei", 12)
-        )
-        emb_retrieval_k_entry.grid(row=4, column=1, padx=5, pady=5, sticky="nsew")
+    # ============ Step2: 生成章节蓝图 ============
+    def generate_chapter_blueprint_ui(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先选择保存文件路径")
+            return
 
-    # ========== 保存/加载 配置按钮区域 ==========
-    def build_main_buttons_area(self):
-        """
-        放置在带边框配置区(config_frame)内部，位于TabView下方
-        """
-        self.btn_frame_config = ctk.CTkFrame(self.config_frame)
-        self.btn_frame_config.grid(row=1, column=0, padx=5, pady=5, sticky="ew")
-        self.btn_frame_config.columnconfigure(0, weight=1)
-        self.btn_frame_config.columnconfigure(1, weight=1)
+        def task():
+            self.disable_button_safe(self.btn_generate_directory)
+            try:
+                interface_format = self.interface_format_var.get().strip()
+                api_key = self.api_key_var.get().strip()
+                base_url = self.base_url_var.get().strip()
+                model_name = self.model_name_var.get().strip()
+                number_of_chapters = self.safe_get_int(self.num_chapters_var, 10)
+                temperature = self.temperature_var.get()
+                max_tokens = self.max_tokens_var.get()
 
-        save_config_btn = ctk.CTkButton(
-            self.btn_frame_config,
-            text="保存配置",
-            command=self.save_config_btn,
-            font=("Microsoft YaHei", 12)
-        )
-        save_config_btn.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+                self.safe_log("开始生成章节蓝图...")
+                Chapter_blueprint_generate(
+                    interface_format=interface_format,
+                    api_key=api_key,
+                    base_url=base_url,
+                    llm_model=model_name,
+                    number_of_chapters=number_of_chapters,
+                    filepath=filepath,
+                    temperature=temperature,
+                    max_tokens=max_tokens
+                )
+                self.safe_log("✅ 章节蓝图生成完成。请在 'Chapter Blueprint' 标签页查看或编辑。")
+            except Exception:
+                self.handle_exception("生成章节蓝图时出错")
+            finally:
+                self.enable_button_safe(self.btn_generate_directory)
 
-        load_config_btn = ctk.CTkButton(
-            self.btn_frame_config,
-            text="加载配置",
-            command=self.load_config_btn,
-            font=("Microsoft YaHei", 12)
-        )
-        load_config_btn.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        threading.Thread(target=task, daemon=True).start()
 
-    # ========== 小说参数区域 ==========
-    def build_novel_params_area(self, start_row=1):
-        """
-        右侧下方区域: 输入主题, 类型, 章节数, 字数, 保存路径, 指导信息等
-        """
-        self.params_frame = ctk.CTkScrollableFrame(
-            self.right_frame,
-            orientation="vertical"
-        )
-        self.params_frame.grid(row=start_row, column=0, sticky="nsew", padx=5, pady=5)
-        self.params_frame.columnconfigure(1, weight=1)
+    # ============ Step3: 生成章节草稿 ============
+    def generate_chapter_draft_ui(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先配置保存文件路径。")
+            return
 
-        # 主题(Topic)
-        topic_label = ctk.CTkLabel(
-            self.params_frame,
-            text="主题(Topic):",
-            font=("Microsoft YaHei", 12)
-        )
-        topic_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        self.topic_text = ctk.CTkTextbox(
-            self.params_frame,
-            width=200,
-            height=80,
-            wrap="word",
-            font=("Microsoft YaHei", 12)
-        )
-        self.topic_text.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
-        if self.topic_default:
-            self.topic_text.insert("0.0", self.topic_default)
+        def task():
+            self.disable_button_safe(self.btn_generate_chapter)
+            try:
+                interface_format = self.interface_format_var.get().strip()
+                api_key = self.api_key_var.get().strip()
+                base_url = self.base_url_var.get().strip()
+                model_name = self.model_name_var.get().strip()
+                temperature = self.temperature_var.get()
+                max_tokens = self.max_tokens_var.get()
 
-        # 类型(Genre)
-        genre_label = ctk.CTkLabel(
-            self.params_frame,
-            text="类型(Genre):",
-            font=("Microsoft YaHei", 12)
-        )
-        genre_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
-        genre_entry = ctk.CTkEntry(
-            self.params_frame,
-            textvariable=self.genre_var,
-            font=("Microsoft YaHei", 12)
-        )
-        genre_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+                chap_num = self.safe_get_int(self.chapter_num_var, 1)
+                word_number = self.safe_get_int(self.word_number_var, 3000)
+                user_guidance = self.user_guide_text.get("0.0", "end").strip()
 
-        # 章节数、每章字数 放在同一行
-        row_for_chapter_and_word = 2
-        num_chapters_label = ctk.CTkLabel(
-            self.params_frame,
-            text="章节数:",
-            font=("Microsoft YaHei", 12)
-        )
-        num_chapters_label.grid(row=row_for_chapter_and_word, column=0, padx=5, pady=5, sticky="e")
+                char_inv = self.characters_involved_var.get().strip()
+                key_items = self.key_items_var.get().strip()
+                scene_loc = self.scene_location_var.get().strip()
+                time_constr = self.time_constraint_var.get().strip()
 
-        ch_word_frame = ctk.CTkFrame(self.params_frame)
-        ch_word_frame.grid(row=row_for_chapter_and_word, column=1, padx=5, pady=5, sticky="ew")
-        ch_word_frame.columnconfigure(0, weight=0)
-        ch_word_frame.columnconfigure(1, weight=0)
-        ch_word_frame.columnconfigure(2, weight=0)
-        ch_word_frame.columnconfigure(3, weight=1)
+                embedding_api_key = self.embedding_api_key_var.get().strip()
+                embedding_url = self.embedding_url_var.get().strip()
+                embedding_interface_format = self.embedding_interface_format_var.get().strip()
+                embedding_model_name = self.embedding_model_name_var.get().strip()
+                embedding_k = self.safe_get_int(self.embedding_retrieval_k_var, 4)
 
-        num_chapters_entry = ctk.CTkEntry(
-            ch_word_frame,
-            textvariable=self.num_chapters_var,
-            width=60,
-            font=("Microsoft YaHei", 12)
-        )
-        num_chapters_entry.grid(row=0, column=0, padx=5, pady=5, sticky="w")
+                self.safe_log(f"开始生成第{chap_num}章草稿...")
+                draft_text = generate_chapter_draft(
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    filepath=filepath,
+                    novel_number=chap_num,
+                    word_number=word_number,
+                    temperature=temperature,
+                    user_guidance=user_guidance,
+                    characters_involved=char_inv,
+                    key_items=key_items,
+                    scene_location=scene_loc,
+                    time_constraint=time_constr,
+                    embedding_api_key=embedding_api_key,
+                    embedding_url=embedding_url,
+                    embedding_interface_format=embedding_interface_format,
+                    embedding_model_name=embedding_model_name,
+                    embedding_retrieval_k=embedding_k,
+                    interface_format=interface_format,
+                    max_tokens=max_tokens
+                )
+                if draft_text:
+                    self.safe_log(f"✅ 第{chap_num}章草稿生成完成。请在左侧查看或编辑。")
+                    self.master.after(0, lambda: self.show_chapter_in_textbox(draft_text))
+                else:
+                    self.safe_log("⚠️ 本章草稿生成失败或无内容。")
 
-        word_number_label = ctk.CTkLabel(
-            ch_word_frame,
-            text="每章字数:",
-            font=("Microsoft YaHei", 12)
-        )
-        word_number_label.grid(row=0, column=1, padx=(15, 5), pady=5, sticky="e")
+            except Exception:
+                self.handle_exception("生成章节草稿时出错")
+            finally:
+                self.enable_button_safe(self.btn_generate_chapter)
 
-        word_number_entry = ctk.CTkEntry(
-            ch_word_frame,
-            textvariable=self.word_number_var,
-            width=60,
-            font=("Microsoft YaHei", 12)
-        )
-        word_number_entry.grid(row=0, column=2, padx=5, pady=5, sticky="w")
+        threading.Thread(target=task, daemon=True).start()
 
-        # 保存路径
-        filepath_label = ctk.CTkLabel(
-            self.params_frame,
-            text="保存路径:",
-            font=("Microsoft YaHei", 12)
-        )
-        filepath_label.grid(row=3, column=0, padx=5, pady=5, sticky="e")
+    def show_chapter_in_textbox(self, text: str):
+        self.chapter_result.delete("0.0", "end")
+        self.chapter_result.insert("0.0", text)
+        self.chapter_result.see("end")
 
-        self.filepath_frame = ctk.CTkFrame(self.params_frame)
-        self.filepath_frame.grid(row=3, column=1, padx=5, pady=5, sticky="nsew")
-        self.filepath_frame.columnconfigure(0, weight=1)
+    # ============ Step4: 定稿章节 ============
+    def finalize_chapter_ui(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先配置保存文件路径。")
+            return
 
-        filepath_entry = ctk.CTkEntry(
-            self.filepath_frame,
-            textvariable=self.filepath_var,
-            font=("Microsoft YaHei", 12)
-        )
-        filepath_entry.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
-        browse_btn = ctk.CTkButton(
-            self.filepath_frame,
-            text="浏览...",
-            command=self.browse_folder,
-            width=60,
-            font=("Microsoft YaHei", 12)
-        )
-        browse_btn.grid(row=0, column=1, padx=5, pady=5, sticky="e")
+        def task():
+            self.disable_button_safe(self.btn_finalize_chapter)
+            try:
+                interface_format = self.interface_format_var.get().strip()
+                api_key = self.api_key_var.get().strip()
+                base_url = self.base_url_var.get().strip()
+                model_name = self.model_name_var.get().strip()
+                temperature = self.temperature_var.get()
+                max_tokens = self.max_tokens_var.get()
 
-        # 章节号
-        chapter_num_label = ctk.CTkLabel(
-            self.params_frame,
-            text="章节号:",
-            font=("Microsoft YaHei", 12)
-        )
-        chapter_num_label.grid(row=4, column=0, padx=5, pady=5, sticky="e")
-        chapter_num_entry = ctk.CTkEntry(
-            self.params_frame,
-            textvariable=self.chapter_num_var,
-            width=80,
-            font=("Microsoft YaHei", 12)
-        )
-        chapter_num_entry.grid(row=4, column=1, padx=5, pady=5, sticky="w")
+                embedding_api_key = self.embedding_api_key_var.get().strip()
+                embedding_url = self.embedding_url_var.get().strip()
+                embedding_interface_format = self.embedding_interface_format_var.get().strip()
+                embedding_model_name = self.embedding_model_name_var.get().strip()
 
-        # 用户指导
-        guide_label = ctk.CTkLabel(
-            self.params_frame,
-            text="本章指导:",
-            font=("Microsoft YaHei", 12)
-        )
-        guide_label.grid(row=5, column=0, padx=5, pady=5, sticky="ne")
-        self.user_guide_text = ctk.CTkTextbox(
-            self.params_frame,
-            width=200,
-            height=80,
-            wrap="word",
-            font=("Microsoft YaHei", 12)
-        )
-        self.user_guide_text.grid(row=5, column=1, padx=5, pady=5, sticky="nsew")
+                chap_num = self.safe_get_int(self.chapter_num_var, 1)
+                word_number = self.safe_get_int(self.word_number_var, 3000)
 
-    # ------------------ 其他Tab的构建 ------------------
+                self.safe_log(f"开始定稿第{chap_num}章...")
+                chapters_dir = os.path.join(filepath, "chapters")
+                os.makedirs(chapters_dir, exist_ok=True)
+                chapter_file = os.path.join(chapters_dir, f"chapter_{chap_num}.txt")
+                edited_text = self.chapter_result.get("0.0", "end").strip()
+                clear_file_content(chapter_file)
+                save_string_to_txt(edited_text, chapter_file)
+
+                finalize_chapter(
+                    novel_number=chap_num,
+                    word_number=word_number,
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    temperature=temperature,
+                    filepath=filepath,
+                    embedding_api_key=embedding_api_key,
+                    embedding_url=embedding_url,
+                    embedding_interface_format=embedding_interface_format,
+                    embedding_model_name=embedding_model_name,
+                    interface_format=interface_format,
+                    max_tokens=max_tokens
+                )
+                self.safe_log(f"✅ 第{chap_num}章定稿完成（已更新全局摘要、角色状态、向量库）。")
+
+                final_text = read_file(chapter_file)
+                self.master.after(0, lambda: self.show_chapter_in_textbox(final_text))
+
+            except Exception:
+                self.handle_exception("定稿章节时出错")
+            finally:
+                self.enable_button_safe(self.btn_finalize_chapter)
+
+        threading.Thread(target=task, daemon=True).start()
+
+    # ============ 一致性审校 (可选) ============
+    def do_consistency_check(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先配置保存文件路径。")
+            return
+
+        def task():
+            self.disable_button_safe(self.btn_check_consistency)
+            try:
+                api_key = self.api_key_var.get().strip()
+                base_url = self.base_url_var.get().strip()
+                model_name = self.model_name_var.get().strip()
+                temperature = self.temperature_var.get()
+
+                chap_num = self.safe_get_int(self.chapter_num_var, 1)
+                chap_file = os.path.join(filepath, "chapters", f"chapter_{chap_num}.txt")
+                chapter_text = read_file(chap_file)
+
+                if not chapter_text.strip():
+                    self.safe_log("⚠️ 当前章节文件为空或不存在，无法审校。")
+                    return
+
+                self.safe_log("开始一致性审校...")
+                result = check_consistency(
+                    novel_setting="",
+                    character_state=read_file(os.path.join(filepath, "character_state.txt")),
+                    global_summary=read_file(os.path.join(filepath, "global_summary.txt")),
+                    chapter_text=chapter_text,
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    temperature=temperature,
+                    plot_arcs=""
+                )
+                self.safe_log("审校结果：")
+                self.safe_log(result)
+
+            except Exception:
+                self.handle_exception("审校时出错")
+            finally:
+                self.enable_button_safe(self.btn_check_consistency)
+
+        threading.Thread(target=task, daemon=True).start()
+
+    # ============ 导入知识库 ============
+    def import_knowledge_handler(self):
+        selected_file = filedialog.askopenfilename(
+            title="选择要导入的知识库文件",
+            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
+        )
+        if selected_file:
+            def task():
+                self.disable_button_safe(self.btn_import_knowledge)
+                try:
+                    emb_api_key = self.embedding_api_key_var.get().strip()
+                    emb_url = self.embedding_url_var.get().strip()
+                    emb_format = self.embedding_interface_format_var.get().strip()
+                    emb_model = self.embedding_model_name_var.get().strip()
+
+                    self.safe_log(f"开始导入知识库文件: {selected_file}")
+                    import_knowledge_file(
+                        embedding_api_key=emb_api_key,
+                        embedding_url=emb_url,
+                        embedding_interface_format=emb_format,
+                        embedding_model_name=emb_model,
+                        file_path=selected_file,
+                        filepath=self.filepath_var.get().strip()
+                    )
+                    self.safe_log("✅ 知识库文件导入完成。")
+                except Exception:
+                    self.handle_exception("导入知识库时出错")
+                finally:
+                    self.enable_button_safe(self.btn_import_knowledge)
+
+            threading.Thread(target=task, daemon=True).start()
+
+    def clear_vectorstore_handler(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先配置保存文件路径。")
+            return
+
+        first_confirm = messagebox.askyesno("警告", "确定要清空本地向量库吗？此操作不可恢复！")
+        if first_confirm:
+            second_confirm = messagebox.askyesno("二次确认", "你确定真的要删除所有向量数据吗？此操作不可恢复！")
+            if second_confirm:
+                if clear_vector_store(filepath):
+                    self.log("已清空向量库。")
+                else:
+                    self.log(f"未能清空向量库，请关闭程序后手动删除 {filepath} 下的 vectorstore 文件夹。")
+
+    def show_plot_arcs_ui(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先在主Tab中设置保存文件路径")
+            return
+
+        plot_arcs_file = os.path.join(filepath, "plot_arcs.txt")
+        if not os.path.exists(plot_arcs_file):
+            messagebox.showinfo("剧情要点", "当前还未生成任何剧情要点或冲突记录。")
+            return
+
+        arcs_text = read_file(plot_arcs_file).strip()
+        if not arcs_text:
+            arcs_text = "当前没有记录的剧情要点或冲突。"
+
+        top = ctk.CTkToplevel(self.master)
+        top.title("剧情要点/未解决冲突")
+        top.geometry("600x400")
+
+        text_area = ctk.CTkTextbox(top, wrap="word", font=("Microsoft YaHei", 12))
+        text_area.pack(fill="both", expand=True, padx=10, pady=10)
+
+        text_area.insert("0.0", arcs_text)
+        text_area.configure(state="disabled")
+
+    # ============ 其余标签页: Novel Architecture, Chapter Blueprint, Character State, Summary ============
     def build_setting_tab(self):
         self.setting_tab.rowconfigure(0, weight=0)
         self.setting_tab.rowconfigure(1, weight=1)
@@ -672,8 +1074,8 @@ class NovelGeneratorGUI:
 
         load_btn = ctk.CTkButton(
             self.setting_tab,
-            text="加载 Novel_setting.txt",
-            command=self.load_novel_setting,
+            text="加载 Novel_architecture.txt",
+            command=self.load_novel_architecture,
             font=("Microsoft YaHei", 12)
         )
         load_btn.grid(row=0, column=0, padx=5, pady=5, sticky="w")
@@ -681,17 +1083,35 @@ class NovelGeneratorGUI:
         save_btn = ctk.CTkButton(
             self.setting_tab,
             text="保存修改",
-            command=self.save_novel_setting,
+            command=self.save_novel_architecture,
             font=("Microsoft YaHei", 12)
         )
         save_btn.grid(row=0, column=0, padx=5, pady=5, sticky="e")
 
-        self.setting_text = ctk.CTkTextbox(
-            self.setting_tab,
-            wrap="word",
-            font=("Microsoft YaHei", 12)
-        )
+        self.setting_text = ctk.CTkTextbox(self.setting_tab, wrap="word", font=("Microsoft YaHei", 12))
         self.setting_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+
+    def load_novel_architecture(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先设置保存文件路径")
+            return
+        filename = os.path.join(filepath, "Novel_architecture.txt")
+        content = read_file(filename)
+        self.setting_text.delete("0.0", "end")
+        self.setting_text.insert("0.0", content)
+        self.log("已加载 Novel_architecture.txt 内容到编辑区。")
+
+    def save_novel_architecture(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先设置保存文件路径")
+            return
+        content = self.setting_text.get("0.0", "end").strip()
+        filename = os.path.join(filepath, "Novel_architecture.txt")
+        clear_file_content(filename)
+        save_string_to_txt(content, filename)
+        self.log("已保存对 Novel_architecture.txt 的修改。")
 
     def build_directory_tab(self):
         self.directory_tab.rowconfigure(0, weight=0)
@@ -701,7 +1121,7 @@ class NovelGeneratorGUI:
         load_btn = ctk.CTkButton(
             self.directory_tab,
             text="加载 Novel_directory.txt",
-            command=self.load_novel_directory,
+            command=self.load_chapter_blueprint,
             font=("Microsoft YaHei", 12)
         )
         load_btn.grid(row=0, column=0, padx=5, pady=5, sticky="w")
@@ -709,17 +1129,35 @@ class NovelGeneratorGUI:
         save_btn = ctk.CTkButton(
             self.directory_tab,
             text="保存修改",
-            command=self.save_novel_directory,
+            command=self.save_chapter_blueprint,
             font=("Microsoft YaHei", 12)
         )
         save_btn.grid(row=0, column=0, padx=5, pady=5, sticky="e")
 
-        self.directory_text = ctk.CTkTextbox(
-            self.directory_tab,
-            wrap="word",
-            font=("Microsoft YaHei", 12)
-        )
+        self.directory_text = ctk.CTkTextbox(self.directory_tab, wrap="word", font=("Microsoft YaHei", 12))
         self.directory_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+
+    def load_chapter_blueprint(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先设置保存文件路径")
+            return
+        filename = os.path.join(filepath, "Novel_directory.txt")
+        content = read_file(filename)
+        self.directory_text.delete("0.0", "end")
+        self.directory_text.insert("0.0", content)
+        self.log("已加载 Novel_directory.txt 内容到编辑区。")
+
+    def save_chapter_blueprint(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先设置保存文件路径")
+            return
+        content = self.directory_text.get("0.0", "end").strip()
+        filename = os.path.join(filepath, "Novel_directory.txt")
+        clear_file_content(filename)
+        save_string_to_txt(content, filename)
+        self.log("已保存对 Novel_directory.txt 的修改。")
 
     def build_character_tab(self):
         self.character_tab.rowconfigure(0, weight=0)
@@ -742,12 +1180,30 @@ class NovelGeneratorGUI:
         )
         save_btn.grid(row=0, column=0, padx=5, pady=5, sticky="e")
 
-        self.character_text = ctk.CTkTextbox(
-            self.character_tab,
-            wrap="word",
-            font=("Microsoft YaHei", 12)
-        )
+        self.character_text = ctk.CTkTextbox(self.character_tab, wrap="word", font=("Microsoft YaHei", 12))
         self.character_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+
+    def load_character_state(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先设置保存文件路径")
+            return
+        filename = os.path.join(filepath, "character_state.txt")
+        content = read_file(filename)
+        self.character_text.delete("0.0", "end")
+        self.character_text.insert("0.0", content)
+        self.log("已加载 character_state.txt 到编辑区。")
+
+    def save_character_state(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先设置保存文件路径")
+            return
+        content = self.character_text.get("0.0", "end").strip()
+        filename = os.path.join(filepath, "character_state.txt")
+        clear_file_content(filename)
+        save_string_to_txt(content, filename)
+        self.log("已保存对 character_state.txt 的修改。")
 
     def build_summary_tab(self):
         self.summary_tab.rowconfigure(0, weight=0)
@@ -770,17 +1226,33 @@ class NovelGeneratorGUI:
         )
         save_btn.grid(row=0, column=0, padx=5, pady=5, sticky="e")
 
-        self.summary_text = ctk.CTkTextbox(
-            self.summary_tab,
-            wrap="word",
-            font=("Microsoft YaHei", 12)
-        )
+        self.summary_text = ctk.CTkTextbox(self.summary_tab, wrap="word", font=("Microsoft YaHei", 12))
         self.summary_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
 
+    def load_global_summary(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先设置保存文件路径")
+            return
+        filename = os.path.join(filepath, "global_summary.txt")
+        content = read_file(filename)
+        self.summary_text.delete("0.0", "end")
+        self.summary_text.insert("0.0", content)
+        self.log("已加载 global_summary.txt 到编辑区。")
+
+    def save_global_summary(self):
+        filepath = self.filepath_var.get().strip()
+        if not filepath:
+            messagebox.showwarning("警告", "请先设置保存文件路径")
+            return
+        content = self.summary_text.get("0.0", "end").strip()
+        filename = os.path.join(filepath, "global_summary.txt")
+        clear_file_content(filename)
+        save_string_to_txt(content, filename)
+        self.log("已保存对 global_summary.txt 的修改。")
+
+    # ============ 章节管理标签页 ============
     def build_chapters_tab(self):
-        """
-        新增的 Tab，用于查看、编辑和保存已生成的各章节内容。
-        """
         self.chapters_view_tab.rowconfigure(0, weight=0)
         self.chapters_view_tab.rowconfigure(1, weight=1)
         self.chapters_view_tab.columnconfigure(0, weight=1)
@@ -821,7 +1293,6 @@ class NovelGeneratorGUI:
         self.chapters_list = []
         self.refresh_chapters_list()
 
-    # ------------------ 章节管理辅助方法 ------------------
     def refresh_chapters_list(self):
         filepath = self.filepath_var.get().strip()
         chapters_dir = os.path.join(filepath, "chapters")
@@ -857,7 +1328,6 @@ class NovelGeneratorGUI:
     def load_chapter_content(self, chapter_number_str):
         if not chapter_number_str:
             return
-
         filepath = self.filepath_var.get().strip()
         chapter_file = os.path.join(filepath, "chapters", f"chapter_{chapter_number_str}.txt")
         if not os.path.exists(chapter_file):
@@ -914,528 +1384,7 @@ class NovelGeneratorGUI:
         else:
             messagebox.showinfo("提示", "已经是最后一章了。")
 
-    # ------------------ 配置管理 ------------------
-    def load_config_btn(self):
-        cfg = load_config(self.config_file)
-        if cfg:
-            # LLM
-            self.api_key_var.set(cfg.get("api_key", ""))
-            self.base_url_var.set(cfg.get("base_url", ""))
-            self.interface_format_var.set(cfg.get("interface_format", "OpenAI"))
-            self.model_name_var.set(cfg.get("model_name", ""))
-            self.temperature_var.set(cfg.get("temperature", 0.7))
 
-            # Embedding
-            self.embedding_api_key_var.set(cfg.get("embedding_api_key", ""))
-            self.embedding_interface_format_var.set(cfg.get("embedding_interface_format", "OpenAI"))
-            self.embedding_url_var.set(cfg.get("embedding_url", ""))
-            self.embedding_model_name_var.set(cfg.get("embedding_model_name", ""))
-            # ### CHANGED：用字符串形式设值
-            self.embedding_retrieval_k_var.set(str(cfg.get("embedding_retrieval_k", 4)))
-
-            # Novel
-            self.genre_var.set(cfg.get("genre", ""))
-
-            # ### CHANGED：用字符串形式设值
-            self.num_chapters_var.set(str(cfg.get("num_chapters", 10)))
-            self.word_number_var.set(str(cfg.get("word_number", 3000)))
-            self.filepath_var.set(cfg.get("filepath", ""))
-
-            topic_value = cfg.get("topic", "")
-            self.topic_text.delete("0.0", "end")
-            self.topic_text.insert("0.0", topic_value)
-
-            self.log("已加载配置。")
-        else:
-            messagebox.showwarning("提示", "未找到或无法读取配置文件。")
-
-    def save_config_btn(self):
-        config_data = {
-            # LLM
-            "api_key": self.api_key_var.get(),
-            "base_url": self.base_url_var.get(),
-            "interface_format": self.interface_format_var.get(),
-            "model_name": self.model_name_var.get(),
-            "temperature": self.temperature_var.get(),
-
-            # Embedding
-            "embedding_api_key": self.embedding_api_key_var.get(),
-            "embedding_interface_format": self.embedding_interface_format_var.get(),
-            "embedding_url": self.embedding_url_var.get(),
-            "embedding_model_name": self.embedding_model_name_var.get(),
-            "embedding_retrieval_k": self.safe_get_int(self.embedding_retrieval_k_var, 4),
-
-            # Novel
-            "topic": self.topic_text.get("0.0", "end").strip(),
-            "genre": self.genre_var.get(),
-            "num_chapters": self.safe_get_int(self.num_chapters_var, 10),
-            "word_number": self.safe_get_int(self.word_number_var, 3000),
-            "filepath": self.filepath_var.get()
-        }
-        if save_config(config_data, self.config_file):
-            messagebox.showinfo("提示", "配置已保存至 config.json")
-            self.log("配置已保存。")
-        else:
-            messagebox.showerror("错误", "保存配置失败。")
-
-    def browse_folder(self):
-        selected_dir = filedialog.askdirectory()
-        if selected_dir:
-            self.filepath_var.set(selected_dir)
-
-    # ------------------ 日志输出（主线程安全） ------------------
-    def log(self, message: str):
-        self.log_text.configure(state="normal")
-        self.log_text.insert("end", message + "\n")
-        self.log_text.see("end")
-        self.log_text.configure(state="disabled")
-
-    def safe_log(self, message: str):
-        self.master.after(0, lambda: self.log(message))
-
-    def disable_button_safe(self, btn):
-        self.master.after(0, lambda: btn.configure(state="disabled"))
-
-    def enable_button_safe(self, btn):
-        self.master.after(0, lambda: btn.configure(state="normal"))
-
-    def handle_exception(self, context: str):
-        full_message = f"{context}\n{traceback.format_exc()}"
-        logging.error(full_message)
-        self.safe_log(full_message)
-
-    # ------------------ 分步操作：生成设定、目录、章节草稿、定稿 ------------------
-    def generate_novel_setting_ui(self):
-        """Step1. 生成小说设定（Novel_setting.txt）"""
-        filepath = self.filepath_var.get().strip()
-        if not filepath:
-            messagebox.showwarning("警告", "请先选择保存文件路径")
-            return
-
-        def task():
-            self.disable_button_safe(self.btn_generate_setting)
-            try:
-                api_key = self.api_key_var.get().strip()
-                base_url = self.base_url_var.get().strip()
-                model_name = self.model_name_var.get().strip()
-
-                topic = self.topic_text.get("0.0", "end").strip()
-                genre = self.genre_var.get().strip()
-                num_chapters = self.safe_get_int(self.num_chapters_var, 10)
-                word_number = self.safe_get_int(self.word_number_var, 3000)
-                temperature = self.temperature_var.get()
-
-                self.safe_log("开始生成小说设定...")
-                Novel_setting_generate(
-                    api_key=api_key,
-                    base_url=base_url,
-                    llm_model=model_name,
-                    topic=topic,
-                    genre=genre,
-                    number_of_chapters=num_chapters,
-                    word_number=word_number,
-                    filepath=filepath,
-                    temperature=temperature
-                )
-                self.safe_log("✅ 小说设定生成完成。请在 'Novel Settings' 标签页进行查看或编辑。")
-            except Exception:
-                self.handle_exception("生成小说设定时出错")
-            finally:
-                self.enable_button_safe(self.btn_generate_setting)
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def generate_novel_directory_ui(self):
-        """Step2. 基于已有 Novel_setting.txt 生成 Novel_directory.txt"""
-        filepath = self.filepath_var.get().strip()
-        if not filepath:
-            messagebox.showwarning("警告", "请先选择保存文件路径")
-            return
-
-        def task():
-            self.disable_button_safe(self.btn_generate_directory)
-            try:
-                api_key = self.api_key_var.get().strip()
-                base_url = self.base_url_var.get().strip()
-                model_name = self.model_name_var.get().strip()
-                num_chapters = self.safe_get_int(self.num_chapters_var, 10)
-                temperature = self.temperature_var.get()
-
-                self.safe_log("开始生成小说目录...")
-                Novel_directory_generate(
-                    api_key=api_key,
-                    base_url=base_url,
-                    llm_model=model_name,
-                    number_of_chapters=num_chapters,
-                    filepath=filepath,
-                    temperature=temperature
-                )
-                self.safe_log("✅ 小说目录生成完成。请在 'Novel Directory' 标签页查看或编辑。")
-            except Exception:
-                self.handle_exception("生成小说目录时出错")
-            finally:
-                self.enable_button_safe(self.btn_generate_directory)
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def generate_chapter_draft_ui(self):
-        """Step3. 生成当前章节草稿"""
-        filepath = self.filepath_var.get().strip()
-        if not filepath:
-            messagebox.showwarning("警告", "请先配置保存文件路径。")
-            return
-
-        def task():
-            self.disable_button_safe(self.btn_generate_chapter)
-            try:
-                api_key = self.api_key_var.get().strip()
-                base_url = self.base_url_var.get().strip()
-                model_name = self.model_name_var.get().strip()
-                temperature = self.temperature_var.get()
-
-                novel_settings_file = os.path.join(filepath, "Novel_setting.txt")
-                novel_settings = read_file(novel_settings_file)
-                if not novel_settings.strip():
-                    self.safe_log("⚠️ 未找到 Novel_setting.txt，请先生成设定。")
-                    return
-
-                character_state_file = os.path.join(filepath, "character_state.txt")
-                character_state = read_file(character_state_file)
-                global_summary_file = os.path.join(filepath, "global_summary.txt")
-                global_summary = read_file(global_summary_file)
-                novel_directory_file = os.path.join(filepath, "Novel_directory.txt")
-                novel_directory = read_file(novel_directory_file)
-
-                chap_num = self.safe_get_int(self.chapter_num_var, 1)
-                word_number = self.safe_get_int(self.word_number_var, 3000)
-                user_guidance = self.user_guide_text.get("0.0", "end").strip()
-
-                # 获取最近3章文本
-                chapters_dir = os.path.join(filepath, "chapters")
-                recent_3_texts = get_last_n_chapters_text(chapters_dir, chap_num, n=3)
-
-                # 生成最近章节摘要
-                recent_chapters_summary = summarize_recent_chapters(
-                    llm_model=model_name,
-                    api_key=api_key,
-                    base_url=base_url,
-                    temperature=temperature,
-                    chapters_text_list=recent_3_texts
-                )
-
-                self.safe_log(f"开始生成第{chap_num}章草稿...")
-                draft_text = generate_chapter_draft(
-                    novel_settings=novel_settings,
-                    global_summary=global_summary,
-                    character_state=character_state,
-                    recent_chapters_summary=recent_chapters_summary,
-                    user_guidance=user_guidance,
-                    api_key=api_key,
-                    base_url=base_url,
-                    model_name=model_name,
-                    novel_number=chap_num,
-                    word_number=word_number,
-                    temperature=temperature,
-                    novel_novel_directory=novel_directory,
-                    filepath=filepath,
-
-                    # Embedding 配置
-                    interface_format=self.embedding_interface_format_var.get().strip(),
-                    embedding_model_name=self.embedding_model_name_var.get().strip(),
-                    embedding_base_url=self.embedding_url_var.get().strip(),
-                    # 新增：检索 K 值
-                    embedding_retrieval_k=self.safe_get_int(self.embedding_retrieval_k_var, 4)
-                )
-                if draft_text:
-                    self.safe_log(f"✅ 第{chap_num}章草稿生成完成。请在左侧查看或编辑。")
-                    self.master.after(0, lambda: self.show_chapter_in_textbox(draft_text))
-                else:
-                    self.safe_log("⚠️ 本章草稿生成失败或无内容。")
-
-            except Exception:
-                self.handle_exception("生成章节草稿时出错")
-            finally:
-                self.enable_button_safe(self.btn_generate_chapter)
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def show_chapter_in_textbox(self, text: str):
-        self.chapter_result.delete("0.0", "end")
-        self.chapter_result.insert("0.0", text)
-        self.chapter_result.see("end")
-
-    def finalize_chapter_ui(self):
-        """Step4. 定稿当前章节：更新全局摘要、角色状态、向量库等"""
-        filepath = self.filepath_var.get().strip()
-        if not filepath:
-            messagebox.showwarning("警告", "请先配置保存文件路径。")
-            return
-
-        def task():
-            self.disable_button_safe(self.btn_finalize_chapter)
-            try:
-                api_key = self.api_key_var.get().strip()
-                base_url = self.base_url_var.get().strip()
-                model_name = self.model_name_var.get().strip()
-                temperature = self.temperature_var.get()
-
-                interface_format = self.embedding_interface_format_var.get().strip()
-                embedding_model_name = self.embedding_model_name_var.get().strip()
-                embedding_base_url = self.embedding_url_var.get().strip()
-                embedding_api_key = self.embedding_api_key_var.get().strip()
-
-                chap_num = self.safe_get_int(self.chapter_num_var, 1)
-                word_number = self.safe_get_int(self.word_number_var, 3000)
-
-                self.safe_log(f"开始定稿第{chap_num}章...")
-                chapters_dir = os.path.join(filepath, "chapters")
-                chapter_file = os.path.join(chapters_dir, f"chapter_{chap_num}.txt")
-                edited_text = self.chapter_result.get("0.0", "end").strip()
-                clear_file_content(chapter_file)
-                save_string_to_txt(edited_text, chapter_file)
-
-                finalize_chapter(
-                    novel_number=chap_num,
-                    word_number=word_number,
-                    api_key=api_key,
-                    base_url=base_url,
-                    interface_format=interface_format,
-                    embedding_model_name=embedding_model_name,
-                    model_name=model_name,
-                    temperature=temperature,
-                    filepath=filepath,
-                    embedding_base_url=embedding_base_url,
-                    embedding_api_key=embedding_api_key
-                )
-                self.safe_log(f"✅ 第{chap_num}章定稿完成（已更新全局摘要、角色状态、剧情要点、向量库）。")
-
-                # 读取定稿后的文本显示
-                chap_file = os.path.join(filepath, "chapters", f"chapter_{chap_num}.txt")
-                final_text = read_file(chap_file)
-                self.master.after(0, lambda: self.show_chapter_in_textbox(final_text))
-
-            except Exception:
-                self.handle_exception("定稿章节时出错")
-            finally:
-                self.enable_button_safe(self.btn_finalize_chapter)
-
-        threading.Thread(target=task, daemon=True).start()
-
-    # ------------------ 一致性审校 ------------------
-    def do_consistency_check(self):
-        """使用审校Agent对最新章节进行简单一致性或冲突检查"""
-        filepath = self.filepath_var.get().strip()
-        if not filepath:
-            messagebox.showwarning("警告", "请先配置保存文件路径。")
-            return
-
-        def task():
-            self.disable_button_safe(self.btn_check_consistency)
-            try:
-                api_key = self.api_key_var.get().strip()
-                base_url = self.base_url_var.get().strip()
-                model_name = self.model_name_var.get().strip()
-                temperature = self.temperature_var.get()
-
-                novel_settings_file = os.path.join(filepath, "Novel_setting.txt")
-                character_state_file = os.path.join(filepath, "character_state.txt")
-                global_summary_file = os.path.join(filepath, "global_summary.txt")
-                plot_arcs_file = os.path.join(filepath, "plot_arcs.txt")
-
-                novel_setting = read_file(novel_settings_file)
-                character_state = read_file(character_state_file)
-                global_summary = read_file(global_summary_file)
-                plot_arcs = read_file(plot_arcs_file)
-
-                chap_num = self.safe_get_int(self.chapter_num_var, 1)
-                chap_file = os.path.join(filepath, "chapters", f"chapter_{chap_num}.txt")
-                chapter_text = read_file(chap_file)
-
-                if not chapter_text.strip():
-                    self.safe_log("⚠️ 当前章节文件为空或不存在，无法审校。")
-                    return
-
-                self.safe_log("开始一致性审校...")
-                result = check_consistency(
-                    novel_setting=novel_setting,
-                    character_state=character_state,
-                    global_summary=global_summary,
-                    chapter_text=chapter_text,
-                    api_key=api_key,
-                    base_url=base_url,
-                    model_name=model_name,
-                    temperature=temperature,
-                    plot_arcs=plot_arcs
-                )
-                self.safe_log("审校结果：")
-                self.safe_log(result)
-
-            except Exception:
-                self.handle_exception("审校时出错")
-            finally:
-                self.enable_button_safe(self.btn_check_consistency)
-
-        threading.Thread(target=task, daemon=True).start()
-
-    # ------------------ 导入知识库/清空向量库/查看剧情要点 ------------------
-    def import_knowledge_handler(self):
-        selected_file = filedialog.askopenfilename(
-            title="选择要导入的知识库文件",
-            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
-        )
-        if selected_file:
-            def task():
-                self.disable_button_safe(self.btn_import_knowledge)
-                try:
-                    self.safe_log(f"开始导入知识库文件: {selected_file}")
-                    import_knowledge_file(
-                        api_key=self.embedding_api_key_var.get().strip(),
-                        base_url=self.embedding_url_var.get().strip(),
-                        interface_format=self.embedding_interface_format_var.get().strip(),
-                        embedding_model_name=self.embedding_model_name_var.get().strip(),
-                        file_path=selected_file,
-                        embedding_base_url=self.embedding_url_var.get().strip(),
-                        filepath=self.filepath_var.get().strip()
-                    )
-                    self.safe_log("✅ 知识库文件导入完成。")
-                except Exception:
-                    self.handle_exception("导入知识库时出错")
-                finally:
-                    self.enable_button_safe(self.btn_import_knowledge)
-
-            threading.Thread(target=task, daemon=True).start()
-
-    def clear_vectorstore_handler(self):
-        filepath = self.filepath_var.get().strip()
-        if not filepath:
-            messagebox.showwarning("警告", "请先配置保存文件路径。")
-            return
-
-        first_confirm = messagebox.askyesno("警告", "确定要清空本地向量库吗？此操作不可恢复！")
-        if first_confirm:
-            second_confirm = messagebox.askyesno("二次确认", "你确定真的要删除所有向量数据吗？此操作不可恢复！")
-            if second_confirm:
-                if clear_vector_store(filepath):
-                    self.log("已清空向量库。")
-                else:
-                    self.log(f"未能清空向量库。请关闭程序后前往{filepath}文件夹手动删除vectorstore目录。")
-
-    def show_plot_arcs_ui(self):
-        filepath = self.filepath_var.get().strip()
-        if not filepath:
-            messagebox.showwarning("警告", "请先在主Tab中设置保存文件路径")
-            return
-
-        plot_arcs_file = os.path.join(filepath, "plot_arcs.txt")
-        if not os.path.exists(plot_arcs_file):
-            messagebox.showinfo("剧情要点", "当前还未生成任何剧情要点或未解决冲突。")
-            return
-
-        arcs_text = read_file(plot_arcs_file).strip()
-        if not arcs_text:
-            arcs_text = "当前没有记录的剧情要点或冲突。"
-
-        top = ctk.CTkToplevel(self.master)
-        top.title("剧情要点/未解决冲突")
-        top.geometry("600x400")
-
-        text_area = ctk.CTkTextbox(top, wrap="word", font=("Microsoft YaHei", 12))
-        text_area.pack(fill="both", expand=True, padx=10, pady=10)
-
-        text_area.insert("0.0", arcs_text)
-        text_area.configure(state="disabled")
-
-    # ------------------ Novel Settings/Directory/Character/Global Summary 的加载与保存 ------------------
-    def load_novel_setting(self):
-        filepath = self.filepath_var.get().strip()
-        if not filepath:
-            messagebox.showwarning("警告", "请先在主Tab中设置保存文件路径")
-            return
-        setting_file = os.path.join(filepath, "Novel_setting.txt")
-        content = read_file(setting_file)
-        self.setting_text.delete("0.0", "end")
-        self.setting_text.insert("0.0", content)
-        self.log("已加载 Novel_setting.txt 内容到编辑区。")
-
-    def save_novel_setting(self):
-        filepath = self.filepath_var.get().strip()
-        if not filepath:
-            messagebox.showwarning("警告", "请先在主Tab中设置保存文件路径")
-            return
-        content = self.setting_text.get("0.0", "end").strip()
-        setting_file = os.path.join(filepath, "Novel_setting.txt")
-        clear_file_content(setting_file)
-        save_string_to_txt(content, setting_file)
-        self.log("已保存对 Novel_setting.txt 的修改。")
-
-    def load_novel_directory(self):
-        filepath = self.filepath_var.get().strip()
-        if not filepath:
-            messagebox.showwarning("警告", "请先在主Tab中设置保存文件路径")
-            return
-        directory_file = os.path.join(filepath, "Novel_directory.txt")
-        content = read_file(directory_file)
-        self.directory_text.delete("0.0", "end")
-        self.directory_text.insert("0.0", content)
-        self.log("已加载 Novel_directory.txt 内容到编辑区。")
-
-    def save_novel_directory(self):
-        filepath = self.filepath_var.get().strip()
-        if not filepath:
-            messagebox.showwarning("警告", "请先在主Tab中设置保存文件路径")
-            return
-        content = self.directory_text.get("0.0", "end").strip()
-        directory_file = os.path.join(filepath, "Novel_directory.txt")
-        clear_file_content(directory_file)
-        save_string_to_txt(content, directory_file)
-        self.log("已保存对 Novel_directory.txt 的修改。")
-
-    def load_character_state(self):
-        filepath = self.filepath_var.get().strip()
-        if not filepath:
-            messagebox.showwarning("警告", "请先在主Tab中设置保存文件路径")
-            return
-        char_file = os.path.join(filepath, "character_state.txt")
-        content = read_file(char_file)
-        self.character_text.delete("0.0", "end")
-        self.character_text.insert("0.0", content)
-        self.log("已加载 character_state.txt 内容到编辑区。")
-
-    def save_character_state(self):
-        filepath = self.filepath_var.get().strip()
-        if not filepath:
-            messagebox.showwarning("警告", "请先在主Tab中设置保存文件路径")
-            return
-        content = self.character_text.get("0.0", "end").strip()
-        char_file = os.path.join(filepath, "character_state.txt")
-        clear_file_content(char_file)
-        save_string_to_txt(content, char_file)
-        self.log("已保存对 character_state.txt 的修改。")
-
-    def load_global_summary(self):
-        filepath = self.filepath_var.get().strip()
-        if not filepath:
-            messagebox.showwarning("警告", "请先在主Tab中设置保存文件路径")
-            return
-        summary_file = os.path.join(filepath, "global_summary.txt")
-        content = read_file(summary_file)
-        self.summary_text.delete("0.0", "end")
-        self.summary_text.insert("0.0", content)
-        self.log("已加载 global_summary.txt 内容到编辑区。")
-
-    def save_global_summary(self):
-        filepath = self.filepath_var.get().strip()
-        if not filepath:
-            messagebox.showwarning("警告", "请先在主Tab中设置保存文件路径")
-            return
-        content = self.summary_text.get("0.0", "end").strip()
-        summary_file = os.path.join(filepath, "global_summary.txt")
-        clear_file_content(summary_file)
-        save_string_to_txt(content, summary_file)
-        self.log("已保存对 global_summary.txt 的修改。")
-
-
-# 入口
 if __name__ == "__main__":
     app = ctk.CTk()
     gui = NovelGeneratorGUI(app)
