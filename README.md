@@ -58,7 +58,7 @@
 3. **安装依赖并运行**  
    - 打开终端，进入项目源文件目录：
      ```bash
-     cd project-name
+     cd AI_NovelGenerator
      ```
    - 安装项目依赖：
      ```bash
