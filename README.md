@@ -48,7 +48,7 @@
 1. **下载项目**  
    - 通过 [GitHub](https://github.com) 下载项目 ZIP 文件，或使用以下命令克隆本项目：
      ```bash
-     git clone https://github.com/your-repo/project-name.git
+     git clone https://github.com/your-repo/project-name.git](https://github.com/YILING0013/AI_NovelGenerator
      ```
 
 2. **安装编译工具**  
