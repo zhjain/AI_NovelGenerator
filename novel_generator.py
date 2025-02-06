@@ -32,7 +32,8 @@ from prompt_definitions import (
     chunked_chapter_blueprint_prompt,
     summary_prompt,
     update_character_state_prompt,
-    chapter_draft_prompt,
+    first_chapter_draft_prompt,
+    next_chapter_draft_prompt,
     summarize_recent_chapters_prompt
 )
 
@@ -415,11 +416,11 @@ def compute_chunk_size(number_of_chapters: int, max_tokens: int) -> int:
     并确保 chunk_size 不会小于1或大于实际章节数。
     """
     tokens_per_chapter = 100.0
-    ratio = max_tokens / tokens_per_chapter  # 8192 / 100 = 81.92
+    ratio = max_tokens / tokens_per_chapter  # 例如：8192 / 100 = 81.92
     # 先取到最接近的10倍
     ratio_rounded_to_10 = int(ratio // 10) * 10  # => 80
     # 再减10
-    chunk_size = ratio_rounded_to_10 - 10  # => 70
+    chunk_size = ratio_rounded_to_10 - 10       # => 70
     if chunk_size < 1:
         chunk_size = 1
     if chunk_size > number_of_chapters:
@@ -527,7 +528,7 @@ def Chapter_blueprint_generate(
     logging.info("Novel_directory.txt (chapter blueprint) has been generated successfully (chunked).")
 
 
-# ============ 3) 生成章节草稿 ============
+# ============ 3) 生成章节草稿（分「第一章」与「后续章节」） ============
 
 def generate_chapter_draft(
     api_key: str,
@@ -550,6 +551,11 @@ def generate_chapter_draft(
     interface_format: str = "openai",
     max_tokens: int = 2048
 ) -> str:
+    """
+    根据 novel_number 判断是否为第一章。
+    - 若是第一章，则使用 first_chapter_draft_prompt
+    - 否则使用 next_chapter_draft_prompt
+    """
     arch_file = os.path.join(filepath, "Novel_architecture.txt")
     novel_architecture_text = read_file(arch_file)
 
@@ -562,6 +568,7 @@ def generate_chapter_draft(
     character_state_file = os.path.join(filepath, "character_state.txt")
     character_state_text = read_file(character_state_file)
 
+    # 获取本章在目录中的信息
     chapter_info = get_chapter_info_from_blueprint(blueprint_text, novel_number)
     chapter_title = chapter_info["chapter_title"]
     chapter_role = chapter_info["chapter_role"]
@@ -571,68 +578,97 @@ def generate_chapter_draft(
     plot_twist_level = chapter_info["plot_twist_level"]
     chapter_summary = chapter_info["chapter_summary"]
 
+    # 准备章节目录文件夹
     chapters_dir = os.path.join(filepath, "chapters")
     os.makedirs(chapters_dir, exist_ok=True)
 
-    recent_3_texts = get_last_n_chapters_text(chapters_dir, novel_number, n=3)
-    short_summary, next_chapter_keywords = summarize_recent_chapters(
-        interface_format=interface_format,
-        api_key=api_key,
-        base_url=base_url,
-        model_name=model_name,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        chapters_text_list=recent_3_texts
-    )
+    # 如果是第一章，不需要前情检索与前章结尾
+    if novel_number == 1:
+        # 使用第一章提示词
+        prompt_text = first_chapter_draft_prompt.format(
+            novel_number=novel_number,
+            chapter_title=chapter_title,
+            chapter_role=chapter_role,
+            chapter_purpose=chapter_purpose,
+            suspense_level=suspense_level,
+            foreshadowing=foreshadowing,
+            plot_twist_level=plot_twist_level,
+            chapter_summary=chapter_summary,
 
-    previous_chapter_excerpt = ""
-    for text_block in reversed(recent_3_texts):
-        if text_block.strip():
-            if len(text_block) > 1500:
-                previous_chapter_excerpt = text_block[-1500:]
-            else:
-                previous_chapter_excerpt = text_block
-            break
+            characters_involved=characters_involved,
+            key_items=key_items,
+            scene_location=scene_location,
+            time_constraint=time_constraint,
+            user_guidance=user_guidance,
 
-    embedding_adapter = create_embedding_adapter(
-        embedding_interface_format,
-        embedding_api_key,
-        embedding_url,
-        embedding_model_name
-    )
-    retrieval_query = short_summary + " " + next_chapter_keywords
-    relevant_context = get_relevant_context_from_vector_store(
-        embedding_adapter=embedding_adapter,
-        query=retrieval_query,
-        filepath=filepath,
-        k=embedding_retrieval_k
-    )
-    if not relevant_context.strip():
-        relevant_context = "（无检索到的上下文）"
+            novel_setting=novel_architecture_text
+        )
 
-    prompt_text = chapter_draft_prompt.format(
-        novel_number=novel_number,
-        chapter_title=chapter_title,
-        chapter_role=chapter_role,
-        chapter_purpose=chapter_purpose,
-        suspense_level=suspense_level,
-        foreshadowing=foreshadowing,
-        plot_twist_level=plot_twist_level,
-        chapter_summary=chapter_summary,
+    else:
+        # 若不是第一章，则先获取最近几章文本，并做摘要与检索
+        recent_3_texts = get_last_n_chapters_text(chapters_dir, novel_number, n=3)
+        short_summary, next_chapter_keywords = summarize_recent_chapters(
+            interface_format=interface_format,
+            api_key=api_key,
+            base_url=base_url,
+            model_name=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            chapters_text_list=recent_3_texts
+        )
 
-        characters_involved=characters_involved,
-        key_items=key_items,
-        scene_location=scene_location,
-        time_constraint=time_constraint,
-        user_guidance=user_guidance,
+        # 从最近章节中获取最后一段内容作为前章结尾
+        previous_chapter_excerpt = ""
+        for text_block in reversed(recent_3_texts):
+            if text_block.strip():
+                if len(text_block) > 1500:
+                    previous_chapter_excerpt = text_block[-1500:]
+                else:
+                    previous_chapter_excerpt = text_block
+                break
 
-        novel_setting=novel_architecture_text,
-        global_summary=global_summary_text,
-        character_state=character_state_text,
-        previous_chapter_excerpt=previous_chapter_excerpt,
-        context_excerpt=relevant_context
-    )
+        # 从向量库检索上下文
+        embedding_adapter = create_embedding_adapter(
+            embedding_interface_format,
+            embedding_api_key,
+            embedding_url,
+            embedding_model_name
+        )
+        retrieval_query = short_summary + " " + next_chapter_keywords
+        relevant_context = get_relevant_context_from_vector_store(
+            embedding_adapter=embedding_adapter,
+            query=retrieval_query,
+            filepath=filepath,
+            k=embedding_retrieval_k
+        )
+        if not relevant_context.strip():
+            relevant_context = "（无检索到的上下文）"
 
+        # 使用后续章节提示词
+        prompt_text = next_chapter_draft_prompt.format(
+            novel_number=novel_number,
+            chapter_title=chapter_title,
+            chapter_role=chapter_role,
+            chapter_purpose=chapter_purpose,
+            suspense_level=suspense_level,
+            foreshadowing=foreshadowing,
+            plot_twist_level=plot_twist_level,
+            chapter_summary=chapter_summary,
+
+            characters_involved=characters_involved,
+            key_items=key_items,
+            scene_location=scene_location,
+            time_constraint=time_constraint,
+            user_guidance=user_guidance,
+
+            novel_setting=novel_architecture_text,
+            global_summary=global_summary_text,
+            character_state=character_state_text,
+            context_excerpt=relevant_context,
+            previous_chapter_excerpt=previous_chapter_excerpt
+        )
+
+    # 调用LLM生成
     llm_adapter = create_llm_adapter(
         interface_format=interface_format,
         base_url=base_url,
@@ -645,12 +681,14 @@ def generate_chapter_draft(
     if not chapter_content.strip():
         logging.warning("Generated chapter draft is empty.")
 
+    # 保存章节文本
     chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
     clear_file_content(chapter_file)
     save_string_to_txt(chapter_content, chapter_file)
 
     logging.info(f"[Draft] Chapter {novel_number} generated as a draft.")
     return chapter_content
+
 
 # ============ 4) 定稿章节 ============
 
@@ -676,6 +714,7 @@ def finalize_chapter(
         logging.warning(f"Chapter {novel_number} is empty, cannot finalize.")
         return
 
+    # 如果内容过短，则尝试扩写
     if len(chapter_text) < 0.7 * word_number:
         chapter_text = enrich_chapter_text(chapter_text, word_number, api_key, base_url, model_name, temperature, interface_format, max_tokens)
         clear_file_content(chapter_file)
@@ -716,6 +755,7 @@ def finalize_chapter(
     clear_file_content(character_state_file)
     save_string_to_txt(new_char_state, character_state_file)
 
+    # 更新向量库
     embedding_adapter = create_embedding_adapter(
         embedding_interface_format,
         embedding_api_key,
