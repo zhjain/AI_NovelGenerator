@@ -28,7 +28,7 @@ class DeepSeekAdapter(BaseLLMAdapter):
     """
     适配官方/OpenAI兼容接口（使用 langchain.ChatOpenAI）
     """
-    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens:int, temperature: float = 0.7):
+    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7):
         self.base_url = ensure_openai_base_url_has_v1(base_url)
         self.api_key = api_key
         self.model_name = model_name
@@ -54,7 +54,7 @@ class OpenAIAdapter(BaseLLMAdapter):
     """
     适配官方/OpenAI兼容接口（使用 langchain.ChatOpenAI）
     """
-    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens:int, temperature: float = 0.7):
+    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7):
         self.base_url = ensure_openai_base_url_has_v1(base_url)
         self.api_key = api_key
         self.model_name = model_name
@@ -81,7 +81,7 @@ class OllamaAdapter(BaseLLMAdapter):
     Ollama 同样有一个 OpenAI-like /v1/chat 接口，可直接使用 ChatOpenAI。
     但是通常 Ollama 默认本地服务在 http://localhost:11434，如果符合OpenAI风格即可直接传参。
     """
-    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens:int, temperature: float = 0.7):
+    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7):
         self.base_url = ensure_openai_base_url_has_v1(base_url)
         self.api_key = api_key
         self.model_name = model_name
@@ -104,7 +104,7 @@ class OllamaAdapter(BaseLLMAdapter):
         return response.content
 
 class MLStudioAdapter(BaseLLMAdapter):
-    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens:int, temperature: float = 0.7):
+    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7):
         self.base_url = ensure_openai_base_url_has_v1(base_url)
         self.api_key = api_key
         self.model_name = model_name
@@ -131,18 +131,19 @@ def create_llm_adapter(
     base_url: str,
     model_name: str,
     api_key: str,
-    temperature: float
+    temperature: float,
+    max_tokens: int
 ) -> BaseLLMAdapter:
     """
     工厂函数：根据 interface_format 返回不同的适配器实例。
     """
     if interface_format.lower() == "deepseek":
-        return DeepSeekAdapter(api_key, base_url, model_name, temperature)
+        return DeepSeekAdapter(api_key, base_url, model_name, max_tokens, temperature)
     elif interface_format.lower() == "openai":
-        return OpenAIAdapter(api_key, base_url, model_name, temperature)
+        return OpenAIAdapter(api_key, base_url, model_name, max_tokens, temperature)
     elif interface_format.lower() == "ollama":
-        return OllamaAdapter(api_key, base_url, model_name, temperature)
+        return OllamaAdapter(api_key, base_url, model_name, max_tokens, temperature)
     elif interface_format.lower() == "ml studio":
-        return MLStudioAdapter(api_key, base_url, model_name, temperature)
+        return MLStudioAdapter(api_key, base_url, model_name, max_tokens, temperature)
     else:
         raise ValueError(f"Unknown interface_format: {interface_format}")

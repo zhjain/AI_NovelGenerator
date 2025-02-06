@@ -20,8 +20,10 @@ from novel_generator import (
     clear_vector_store,
     get_last_n_chapters_text
 )
-
 from consistency_checker import check_consistency
+
+# ---- Import the tooltip texts ----
+from tooltips import tooltips
 
 def log_error(message: str):
     logging.error(f"{message}\n{traceback.format_exc()}")
@@ -52,6 +54,7 @@ class NovelGeneratorGUI:
         self.interface_format_var = ctk.StringVar(value=self.loaded_config.get("interface_format", "OpenAI"))
         self.model_name_var = ctk.StringVar(value=self.loaded_config.get("model_name", "gpt-4o-mini"))
         self.temperature_var = ctk.DoubleVar(value=self.loaded_config.get("temperature", 0.7))
+        self.max_tokens_var = ctk.IntVar(value=self.loaded_config.get("max_tokens", 8192))
 
         # Embedding相关
         self.embedding_interface_format_var = ctk.StringVar(value=self.loaded_config.get("embedding_interface_format", "OpenAI"))
@@ -91,6 +94,11 @@ class NovelGeneratorGUI:
         self.build_character_tab()
         self.build_summary_tab()
         self.build_chapters_tab()
+
+    def show_tooltip(self, key: str):
+        """Display a popup with tooltip text."""
+        info_text = tooltips.get(key, "暂无说明")
+        messagebox.showinfo("参数说明", info_text)
 
     def safe_get_int(self, var, default=1):
         try:
@@ -203,6 +211,27 @@ class NovelGeneratorGUI:
         self.build_ai_config_tab()
         self.build_embeddings_config_tab()
 
+    # 封装一个小工具函数，用来创建「标签 + 问号按钮」的组合
+    def create_label_with_help(self, parent, label_text, tooltip_key, row, column, font=None, sticky="e", padx=5, pady=5):
+        # frame容器：同一格子里存放 label + "?"按钮
+        frame = ctk.CTkFrame(parent)
+        frame.grid(row=row, column=column, padx=padx, pady=pady, sticky=sticky)
+        frame.columnconfigure(0, weight=0)
+        # 先放 label
+        label = ctk.CTkLabel(frame, text=label_text, font=font)
+        label.pack(side="left")
+        # 再放问号按钮
+        btn = ctk.CTkButton(
+            frame,
+            text="?",
+            width=22,
+            height=22,
+            font=("Microsoft YaHei", 10),
+            command=lambda: self.show_tooltip(tooltip_key)
+        )
+        btn.pack(side="left", padx=3)
+        return frame
+
     def build_ai_config_tab(self):
         def on_interface_format_changed(new_value):
             if new_value == "Ollama":
@@ -211,26 +240,49 @@ class NovelGeneratorGUI:
                 self.base_url_var.set("http://localhost:1234/v1")
             elif new_value == "OpenAI":
                 self.base_url_var.set("https://api.openai.com/v1")
+            elif new_value == "DeepSeek":
+                self.base_url_var.set("https://api.deepseek.com/v1")
 
-        for i in range(5):
+        for i in range(6):
             self.ai_config_tab.grid_rowconfigure(i, weight=0)
         self.ai_config_tab.grid_columnconfigure(0, weight=0)
         self.ai_config_tab.grid_columnconfigure(1, weight=1)
         self.ai_config_tab.grid_columnconfigure(2, weight=0)
 
-        api_key_label = ctk.CTkLabel(self.ai_config_tab, text="LLM API Key:", font=("Microsoft YaHei", 12))
-        api_key_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        # 1) API Key
+        self.create_label_with_help(
+            parent=self.ai_config_tab,
+            label_text="LLM API Key:",
+            tooltip_key="api_key",
+            row=0,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
         api_key_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.api_key_var, font=("Microsoft YaHei", 12))
-        api_key_entry.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+        api_key_entry.grid(row=0, column=1, padx=5, pady=5, columnspan=2, sticky="nsew")
 
-        base_url_label = ctk.CTkLabel(self.ai_config_tab, text="LLM Base URL:", font=("Microsoft YaHei", 12))
-        base_url_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        # 2) Base URL
+        self.create_label_with_help(
+            parent=self.ai_config_tab,
+            label_text="LLM Base URL:",
+            tooltip_key="base_url",
+            row=1,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
         base_url_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.base_url_var, font=("Microsoft YaHei", 12))
-        base_url_entry.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
+        base_url_entry.grid(row=1, column=1, padx=5, pady=5, columnspan=2, sticky="nsew")
 
-        interface_label = ctk.CTkLabel(self.ai_config_tab, text="LLM 接口格式:", font=("Microsoft YaHei", 12))
-        interface_label.grid(row=2, column=0, padx=5, pady=5, sticky="e")
-        interface_options = ["OpenAI", "Ollama", "ML Studio"]
+        # 3) 接口格式
+        label_frame = self.create_label_with_help(
+            parent=self.ai_config_tab,
+            label_text="LLM 接口格式:",
+            tooltip_key="interface_format",
+            row=2,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        interface_options = ["DeepSeek", "OpenAI", "Ollama", "ML Studio"]
         interface_dropdown = ctk.CTkOptionMenu(
             self.ai_config_tab,
             values=interface_options,
@@ -238,15 +290,29 @@ class NovelGeneratorGUI:
             command=on_interface_format_changed,
             font=("Microsoft YaHei", 12)
         )
-        interface_dropdown.grid(row=2, column=1, padx=5, pady=5, sticky="nsew")
+        interface_dropdown.grid(row=2, column=1, padx=5, pady=5, columnspan=2, sticky="nsew")
 
-        model_name_label = ctk.CTkLabel(self.ai_config_tab, text="Model Name:", font=("Microsoft YaHei", 12))
-        model_name_label.grid(row=3, column=0, padx=5, pady=5, sticky="e")
+        # 4) Model Name
+        self.create_label_with_help(
+            parent=self.ai_config_tab,
+            label_text="Model Name:",
+            tooltip_key="model_name",
+            row=3,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
         model_name_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.model_name_var, font=("Microsoft YaHei", 12))
-        model_name_entry.grid(row=3, column=1, padx=5, pady=5, sticky="nsew")
+        model_name_entry.grid(row=3, column=1, padx=5, pady=5, columnspan=2, sticky="nsew")
 
-        temp_label = ctk.CTkLabel(self.ai_config_tab, text="Temperature:", font=("Microsoft YaHei", 12))
-        temp_label.grid(row=4, column=0, padx=5, pady=5, sticky="e")
+        # 5) Temperature
+        temp_frame = self.create_label_with_help(
+            parent=self.ai_config_tab,
+            label_text="Temperature:",
+            tooltip_key="temperature",
+            row=4,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
 
         def update_temp_label(value):
             self.temp_value_label.configure(text=f"{float(value):.2f}")
@@ -265,7 +331,37 @@ class NovelGeneratorGUI:
             text=f"{self.temperature_var.get():.2f}",
             font=("Microsoft YaHei", 12)
         )
-        self.temp_value_label.grid(row=4, column=2, padx=1, pady=1, sticky="w")
+        self.temp_value_label.grid(row=4, column=2, padx=5, pady=5, sticky="w")
+
+        # 6) Max Tokens
+        self.create_label_with_help(
+            parent=self.ai_config_tab,
+            label_text="Max Tokens:",
+            tooltip_key="max_tokens",
+            row=5,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+
+        def update_max_tokens_label(value):
+            self.max_tokens_value_label.configure(text=str(int(float(value))))
+
+        max_tokens_slider = ctk.CTkSlider(
+            self.ai_config_tab,
+            from_=0,
+            to=102400,
+            number_of_steps=100,
+            command=update_max_tokens_label,
+            variable=self.max_tokens_var
+        )
+        max_tokens_slider.grid(row=5, column=1, padx=5, pady=5, sticky="we")
+
+        self.max_tokens_value_label = ctk.CTkLabel(
+            self.ai_config_tab,
+            text=str(self.max_tokens_var.get()),
+            font=("Microsoft YaHei", 12)
+        )
+        self.max_tokens_value_label.grid(row=5, column=2, padx=5, pady=5, sticky="w")
 
     def build_embeddings_config_tab(self):
         def on_embedding_interface_changed(new_value):
@@ -275,20 +371,37 @@ class NovelGeneratorGUI:
                 self.embedding_url_var.set("http://localhost:1234/v1")
             elif new_value == "OpenAI":
                 self.embedding_url_var.set("https://api.openai.com/v1")
-                
+            elif new_value == "DeepSeek":
+                self.embedding_url_var.set("https://api.deepseek.com/v1")
+
         for i in range(5):
             self.embeddings_config_tab.grid_rowconfigure(i, weight=0)
         self.embeddings_config_tab.grid_columnconfigure(0, weight=0)
         self.embeddings_config_tab.grid_columnconfigure(1, weight=1)
+        self.embeddings_config_tab.grid_columnconfigure(2, weight=0)
 
-        emb_api_key_label = ctk.CTkLabel(self.embeddings_config_tab, text="Embedding API Key:", font=("Microsoft YaHei", 12))
-        emb_api_key_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        # 1) Embedding API Key
+        self.create_label_with_help(
+            parent=self.embeddings_config_tab,
+            label_text="Embedding API Key:",
+            tooltip_key="embedding_api_key",
+            row=0,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
         emb_api_key_entry = ctk.CTkEntry(self.embeddings_config_tab, textvariable=self.embedding_api_key_var, font=("Microsoft YaHei", 12))
         emb_api_key_entry.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
-        emb_interface_label = ctk.CTkLabel(self.embeddings_config_tab, text="Embedding 接口格式:", font=("Microsoft YaHei", 12))
-        emb_interface_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
-        emb_interface_options = ["OpenAI", "Ollama", "ML Studio"]
+        # 2) Embedding 接口格式
+        self.create_label_with_help(
+            parent=self.embeddings_config_tab,
+            label_text="Embedding 接口格式:",
+            tooltip_key="embedding_interface_format",
+            row=1,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+        emb_interface_options = ["DeepSeek", "OpenAI", "Ollama", "ML Studio"]
         emb_interface_dropdown = ctk.CTkOptionMenu(
             self.embeddings_config_tab,
             values=emb_interface_options,
@@ -298,18 +411,39 @@ class NovelGeneratorGUI:
         )
         emb_interface_dropdown.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
 
-        emb_url_label = ctk.CTkLabel(self.embeddings_config_tab, text="Embedding Base URL:", font=("Microsoft YaHei", 12))
-        emb_url_label.grid(row=2, column=0, padx=5, pady=5, sticky="e")
+        # 3) Embedding Base URL
+        self.create_label_with_help(
+            parent=self.embeddings_config_tab,
+            label_text="Embedding Base URL:",
+            tooltip_key="embedding_url",
+            row=2,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
         emb_url_entry = ctk.CTkEntry(self.embeddings_config_tab, textvariable=self.embedding_url_var, font=("Microsoft YaHei", 12))
         emb_url_entry.grid(row=2, column=1, padx=5, pady=5, sticky="nsew")
 
-        emb_model_name_label = ctk.CTkLabel(self.embeddings_config_tab, text="Embedding Model Name:", font=("Microsoft YaHei", 12))
-        emb_model_name_label.grid(row=3, column=0, padx=5, pady=5, sticky="e")
+        # 4) Embedding Model Name
+        self.create_label_with_help(
+            parent=self.embeddings_config_tab,
+            label_text="Embedding Model Name:",
+            tooltip_key="embedding_model_name",
+            row=3,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
         emb_model_name_entry = ctk.CTkEntry(self.embeddings_config_tab, textvariable=self.embedding_model_name_var, font=("Microsoft YaHei", 12))
         emb_model_name_entry.grid(row=3, column=1, padx=5, pady=5, sticky="nsew")
 
-        emb_retrieval_k_label = ctk.CTkLabel(self.embeddings_config_tab, text="Retrieval Top-K:", font=("Microsoft YaHei", 12))
-        emb_retrieval_k_label.grid(row=4, column=0, padx=5, pady=5, sticky="e")
+        # 5) Retrieval Top-K
+        self.create_label_with_help(
+            parent=self.embeddings_config_tab,
+            label_text="Retrieval Top-K:",
+            tooltip_key="embedding_retrieval_k",
+            row=4,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
         emb_retrieval_k_entry = ctk.CTkEntry(self.embeddings_config_tab, textvariable=self.embedding_retrieval_k_var, font=("Microsoft YaHei", 12))
         emb_retrieval_k_entry.grid(row=4, column=1, padx=5, pady=5, sticky="nsew")
 
@@ -330,41 +464,72 @@ class NovelGeneratorGUI:
         self.params_frame.grid(row=start_row, column=0, sticky="nsew", padx=5, pady=5)
         self.params_frame.columnconfigure(1, weight=1)
 
-        topic_label = ctk.CTkLabel(self.params_frame, text="主题(Topic):", font=("Microsoft YaHei", 12))
-        topic_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        self.topic_text = ctk.CTkTextbox(self.params_frame,height=80, wrap="word", font=("Microsoft YaHei", 12))
+        # 1) 主题(Topic)
+        topic_label_frame = self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="主题(Topic):",
+            tooltip_key="topic",
+            row=0,
+            column=0,
+            font=("Microsoft YaHei", 12),
+            sticky="ne"
+        )
+        self.topic_text = ctk.CTkTextbox(self.params_frame, height=80, wrap="word", font=("Microsoft YaHei", 12))
         self.topic_text.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
         if self.topic_default:
             self.topic_text.insert("0.0", self.topic_default)
 
-        genre_label = ctk.CTkLabel(self.params_frame, text="类型(Genre):", font=("Microsoft YaHei", 12))
-        genre_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        # 2) 类型(Genre)
+        self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="类型(Genre):",
+            tooltip_key="genre",
+            row=1,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
         genre_entry = ctk.CTkEntry(self.params_frame, textvariable=self.genre_var, font=("Microsoft YaHei", 12))
         genre_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
+        # 3) 章节数 & 每章字数
         row_for_chapter_and_word = 2
-        num_chapters_label = ctk.CTkLabel(self.params_frame, text="章节数:", font=("Microsoft YaHei", 12))
-        num_chapters_label.grid(row=row_for_chapter_and_word, column=0, padx=5, pady=5, sticky="e")
+        chapter_word_frame = ctk.CTkFrame(self.params_frame)
+        chapter_word_frame.grid(row=row_for_chapter_and_word, column=1, padx=5, pady=5, sticky="ew")
+        chapter_word_frame.columnconfigure((0, 1, 2, 3), weight=0)
 
-        ch_word_frame = ctk.CTkFrame(self.params_frame)
-        ch_word_frame.grid(row=row_for_chapter_and_word, column=1, padx=5, pady=5, sticky="ew")
-        ch_word_frame.columnconfigure((0, 1, 2, 3), weight=0)
+        # 左边标签
+        label_frame = self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="章节数 & 每章字数:",
+            tooltip_key="num_chapters",
+            row=row_for_chapter_and_word,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
 
-        num_chapters_entry = ctk.CTkEntry(ch_word_frame, textvariable=self.num_chapters_var, width=60, font=("Microsoft YaHei", 12))
-        num_chapters_entry.grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        # 输入框
+        num_chapters_label = ctk.CTkLabel(chapter_word_frame, text="章节数:", font=("Microsoft YaHei", 12))
+        num_chapters_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        num_chapters_entry = ctk.CTkEntry(chapter_word_frame, textvariable=self.num_chapters_var, width=60, font=("Microsoft YaHei", 12))
+        num_chapters_entry.grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
-        word_number_label = ctk.CTkLabel(ch_word_frame, text="每章字数:", font=("Microsoft YaHei", 12))
-        word_number_label.grid(row=0, column=1, padx=(15, 5), pady=5, sticky="e")
+        word_number_label = ctk.CTkLabel(chapter_word_frame, text="每章字数:", font=("Microsoft YaHei", 12))
+        word_number_label.grid(row=0, column=2, padx=(15, 5), pady=5, sticky="e")
+        word_number_entry = ctk.CTkEntry(chapter_word_frame, textvariable=self.word_number_var, width=60, font=("Microsoft YaHei", 12))
+        word_number_entry.grid(row=0, column=3, padx=5, pady=5, sticky="w")
 
-        word_number_entry = ctk.CTkEntry(ch_word_frame, textvariable=self.word_number_var, width=60, font=("Microsoft YaHei", 12))
-        word_number_entry.grid(row=0, column=2, padx=5, pady=5, sticky="w")
-
-        # 保存路径
-        filepath_label = ctk.CTkLabel(self.params_frame, text="保存路径:", font=("Microsoft YaHei", 12))
-        filepath_label.grid(row=3, column=0, padx=5, pady=5, sticky="e")
-
+        # 4) 保存路径
+        row_fp = 3
+        self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="保存路径:",
+            tooltip_key="filepath",
+            row=row_fp,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
         self.filepath_frame = ctk.CTkFrame(self.params_frame)
-        self.filepath_frame.grid(row=3, column=1, padx=5, pady=5, sticky="nsew")
+        self.filepath_frame.grid(row=row_fp, column=1, padx=5, pady=5, sticky="nsew")
         self.filepath_frame.columnconfigure(0, weight=1)
 
         filepath_entry = ctk.CTkEntry(self.filepath_frame, textvariable=self.filepath_var, font=("Microsoft YaHei", 12))
@@ -372,43 +537,85 @@ class NovelGeneratorGUI:
         browse_btn = ctk.CTkButton(self.filepath_frame, text="浏览...", command=self.browse_folder, width=60, font=("Microsoft YaHei", 12))
         browse_btn.grid(row=0, column=1, padx=5, pady=5, sticky="e")
 
-        # 章节号
-        chapter_num_label = ctk.CTkLabel(self.params_frame, text="章节号:", font=("Microsoft YaHei", 12))
-        chapter_num_label.grid(row=4, column=0, padx=5, pady=5, sticky="e")
+        # 5) 章节号
+        row_chap_num = 4
+        self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="章节号:",
+            tooltip_key="chapter_num",
+            row=row_chap_num,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
         chapter_num_entry = ctk.CTkEntry(self.params_frame, textvariable=self.chapter_num_var, width=80, font=("Microsoft YaHei", 12))
-        chapter_num_entry.grid(row=4, column=1, padx=5, pady=5, sticky="w")
+        chapter_num_entry.grid(row=row_chap_num, column=1, padx=5, pady=5, sticky="w")
 
-        # 用户指导
-        guide_label = ctk.CTkLabel(self.params_frame, text="本章指导:", font=("Microsoft YaHei", 12))
-        guide_label.grid(row=5, column=0, padx=5, pady=5, sticky="ne")
-        self.user_guide_text = ctk.CTkTextbox(self.params_frame,height=80, wrap="word", font=("Microsoft YaHei", 12))
-        self.user_guide_text.grid(row=5, column=1, padx=5, pady=5, sticky="nsew")
+        # 6) 本章指导
+        row_user_guide = 5
+        guide_label_frame = self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="本章指导:",
+            tooltip_key="user_guidance",
+            row=row_user_guide,
+            column=0,
+            font=("Microsoft YaHei", 12),
+            sticky="ne"
+        )
+        self.user_guide_text = ctk.CTkTextbox(self.params_frame, height=80, wrap="word", font=("Microsoft YaHei", 12))
+        self.user_guide_text.grid(row=row_user_guide, column=1, padx=5, pady=5, sticky="nsew")
 
-        # 新增：四个可选元素
-        row_index = 6
-
-        char_inv_label = ctk.CTkLabel(self.params_frame, text="核心人物:", font=("Microsoft YaHei", 12))
-        char_inv_label.grid(row=row_index, column=0, padx=5, pady=5, sticky="e")
+        # 7) 可选元素：核心人物/关键道具/空间坐标/时间压力
+        row_idx = 6
+        # 核心人物
+        self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="核心人物:",
+            tooltip_key="characters_involved",
+            row=row_idx,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
         char_inv_entry = ctk.CTkEntry(self.params_frame, textvariable=self.characters_involved_var, font=("Microsoft YaHei", 12))
-        char_inv_entry.grid(row=row_index, column=1, padx=5, pady=5, sticky="ew")
+        char_inv_entry.grid(row=row_idx, column=1, padx=5, pady=5, sticky="ew")
+        row_idx += 1
 
-        row_index += 1
-        key_items_label = ctk.CTkLabel(self.params_frame, text="关键道具:", font=("Microsoft YaHei", 12))
-        key_items_label.grid(row=row_index, column=0, padx=5, pady=5, sticky="e")
+        # 关键道具
+        self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="关键道具:",
+            tooltip_key="key_items",
+            row=row_idx,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
         key_items_entry = ctk.CTkEntry(self.params_frame, textvariable=self.key_items_var, font=("Microsoft YaHei", 12))
-        key_items_entry.grid(row=row_index, column=1, padx=5, pady=5, sticky="ew")
+        key_items_entry.grid(row=row_idx, column=1, padx=5, pady=5, sticky="ew")
+        row_idx += 1
 
-        row_index += 1
-        scene_loc_label = ctk.CTkLabel(self.params_frame, text="空间坐标:", font=("Microsoft YaHei", 12))
-        scene_loc_label.grid(row=row_index, column=0, padx=5, pady=5, sticky="e")
+        # 空间坐标
+        self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="空间坐标:",
+            tooltip_key="scene_location",
+            row=row_idx,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
         scene_loc_entry = ctk.CTkEntry(self.params_frame, textvariable=self.scene_location_var, font=("Microsoft YaHei", 12))
-        scene_loc_entry.grid(row=row_index, column=1, padx=5, pady=5, sticky="ew")
+        scene_loc_entry.grid(row=row_idx, column=1, padx=5, pady=5, sticky="ew")
+        row_idx += 1
 
-        row_index += 1
-        time_const_label = ctk.CTkLabel(self.params_frame, text="时间压力:", font=("Microsoft YaHei", 12))
-        time_const_label.grid(row=row_index, column=0, padx=5, pady=5, sticky="e")
+        # 时间压力
+        self.create_label_with_help(
+            parent=self.params_frame,
+            label_text="时间压力:",
+            tooltip_key="time_constraint",
+            row=row_idx,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
         time_const_entry = ctk.CTkEntry(self.params_frame, textvariable=self.time_constraint_var, font=("Microsoft YaHei", 12))
-        time_const_entry.grid(row=row_index, column=1, padx=5, pady=5, sticky="ew")
+        time_const_entry.grid(row=row_idx, column=1, padx=5, pady=5, sticky="ew")
 
     def build_optional_buttons_area(self, start_row=2):
         self.optional_btn_frame = ctk.CTkFrame(self.right_frame)
@@ -456,11 +663,14 @@ class NovelGeneratorGUI:
             self.interface_format_var.set(cfg.get("interface_format", "OpenAI"))
             self.model_name_var.set(cfg.get("model_name", ""))
             self.temperature_var.set(cfg.get("temperature", 0.7))
+            self.max_tokens_var.set(cfg.get("max_tokens", 2048))
+
             self.embedding_api_key_var.set(cfg.get("embedding_api_key", ""))
             self.embedding_interface_format_var.set(cfg.get("embedding_interface_format", "OpenAI"))
             self.embedding_url_var.set(cfg.get("embedding_url", ""))
             self.embedding_model_name_var.set(cfg.get("embedding_model_name", ""))
             self.embedding_retrieval_k_var.set(str(cfg.get("embedding_retrieval_k", 4)))
+
             self.genre_var.set(cfg.get("genre", ""))
             self.num_chapters_var.set(str(cfg.get("num_chapters", 10)))
             self.word_number_var.set(str(cfg.get("word_number", 3000)))
@@ -481,6 +691,7 @@ class NovelGeneratorGUI:
             "interface_format": self.interface_format_var.get(),
             "model_name": self.model_name_var.get(),
             "temperature": self.temperature_var.get(),
+            "max_tokens": self.max_tokens_var.get(),
 
             "embedding_api_key": self.embedding_api_key_var.get(),
             "embedding_interface_format": self.embedding_interface_format_var.get(),
@@ -535,10 +746,12 @@ class NovelGeneratorGUI:
         def task():
             self.disable_button_safe(self.btn_generate_architecture)
             try:
+                interface_format = self.interface_format_var.get().strip()
                 api_key = self.api_key_var.get().strip()
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
+                max_tokens = self.max_tokens_var.get()
 
                 topic = self.topic_text.get("0.0", "end").strip()
                 genre = self.genre_var.get().strip()
@@ -547,6 +760,7 @@ class NovelGeneratorGUI:
 
                 self.safe_log("开始生成小说架构...")
                 Novel_architecture_generate(
+                    interface_format=interface_format,
                     api_key=api_key,
                     base_url=base_url,
                     llm_model=model_name,
@@ -555,7 +769,8 @@ class NovelGeneratorGUI:
                     number_of_chapters=num_chapters,
                     word_number=word_number,
                     filepath=filepath,
-                    temperature=temperature
+                    temperature=temperature,
+                    max_tokens=max_tokens
                 )
                 self.safe_log("✅ 小说架构生成完成。请在 'Novel Architecture' 标签页查看或编辑。")
             except Exception:
@@ -575,18 +790,22 @@ class NovelGeneratorGUI:
         def task():
             self.disable_button_safe(self.btn_generate_directory)
             try:
+                interface_format = self.interface_format_var.get().strip()
                 api_key = self.api_key_var.get().strip()
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
+                max_tokens = self.max_tokens_var.get()
 
                 self.safe_log("开始生成章节蓝图...")
                 Chapter_blueprint_generate(
+                    interface_format=interface_format,
                     api_key=api_key,
                     base_url=base_url,
                     llm_model=model_name,
                     filepath=filepath,
-                    temperature=temperature
+                    temperature=temperature,
+                    max_tokens=max_tokens
                 )
                 self.safe_log("✅ 章节蓝图生成完成。请在 'Chapter Blueprint' 标签页查看或编辑。")
             except Exception:
@@ -606,24 +825,22 @@ class NovelGeneratorGUI:
         def task():
             self.disable_button_safe(self.btn_generate_chapter)
             try:
-                # LLM相关
+                interface_format = self.interface_format_var.get().strip()
                 api_key = self.api_key_var.get().strip()
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
+                max_tokens = self.max_tokens_var.get()
 
-                # 章节信息
                 chap_num = self.safe_get_int(self.chapter_num_var, 1)
                 word_number = self.safe_get_int(self.word_number_var, 3000)
                 user_guidance = self.user_guide_text.get("0.0", "end").strip()
 
-                # 新增四个可选要素
                 char_inv = self.characters_involved_var.get().strip()
                 key_items = self.key_items_var.get().strip()
                 scene_loc = self.scene_location_var.get().strip()
                 time_constr = self.time_constraint_var.get().strip()
 
-                # Embedding相关
                 embedding_api_key = self.embedding_api_key_var.get().strip()
                 embedding_url = self.embedding_url_var.get().strip()
                 embedding_interface_format = self.embedding_interface_format_var.get().strip()
@@ -648,7 +865,9 @@ class NovelGeneratorGUI:
                     embedding_url=embedding_url,
                     embedding_interface_format=embedding_interface_format,
                     embedding_model_name=embedding_model_name,
-                    embedding_retrieval_k=embedding_k
+                    embedding_retrieval_k=embedding_k,
+                    interface_format=interface_format,
+                    max_tokens=max_tokens
                 )
                 if draft_text:
                     self.safe_log(f"✅ 第{chap_num}章草稿生成完成。请在左侧查看或编辑。")
@@ -678,24 +897,22 @@ class NovelGeneratorGUI:
         def task():
             self.disable_button_safe(self.btn_finalize_chapter)
             try:
-                # LLM相关
+                interface_format = self.interface_format_var.get().strip()
                 api_key = self.api_key_var.get().strip()
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
+                max_tokens = self.max_tokens_var.get()
 
-                # Embedding相关
                 embedding_api_key = self.embedding_api_key_var.get().strip()
                 embedding_url = self.embedding_url_var.get().strip()
                 embedding_interface_format = self.embedding_interface_format_var.get().strip()
                 embedding_model_name = self.embedding_model_name_var.get().strip()
 
-                # 章节参数
                 chap_num = self.safe_get_int(self.chapter_num_var, 1)
                 word_number = self.safe_get_int(self.word_number_var, 3000)
 
                 self.safe_log(f"开始定稿第{chap_num}章...")
-                # 先保存用户在左侧编辑框中的修改
                 chapters_dir = os.path.join(filepath, "chapters")
                 os.makedirs(chapters_dir, exist_ok=True)
                 chapter_file = os.path.join(chapters_dir, f"chapter_{chap_num}.txt")
@@ -714,7 +931,9 @@ class NovelGeneratorGUI:
                     embedding_api_key=embedding_api_key,
                     embedding_url=embedding_url,
                     embedding_interface_format=embedding_interface_format,
-                    embedding_model_name=embedding_model_name
+                    embedding_model_name=embedding_model_name,
+                    interface_format=interface_format,
+                    max_tokens=max_tokens
                 )
                 self.safe_log(f"✅ 第{chap_num}章定稿完成（已更新全局摘要、角色状态、向量库）。")
 
@@ -846,7 +1065,6 @@ class NovelGeneratorGUI:
         text_area.configure(state="disabled")
 
     # ============ 其余标签页: Novel Architecture, Chapter Blueprint, Character State, Summary ============
-
     def build_setting_tab(self):
         self.setting_tab.rowconfigure(0, weight=0)
         self.setting_tab.rowconfigure(1, weight=1)
@@ -1163,6 +1381,7 @@ class NovelGeneratorGUI:
             self.load_chapter_content(self.chapters_list[new_idx])
         else:
             messagebox.showinfo("提示", "已经是最后一章了。")
+
 
 if __name__ == "__main__":
     app = ctk.CTk()

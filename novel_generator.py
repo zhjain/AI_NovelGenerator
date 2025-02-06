@@ -43,6 +43,7 @@ from embedding_adapters import create_embedding_adapter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
+
 # ============ 工具函数 ============
 
 def remove_think_tags(text: str) -> str:
@@ -67,6 +68,7 @@ def invoke_with_cleaning(llm_adapter, prompt: str) -> str:
     debug_log(prompt, cleaned_text)
     return cleaned_text.strip()
 
+
 # ============ 获取 vectorstore 路径 ============
 
 def get_vectorstore_dir(filepath: str) -> str:
@@ -89,6 +91,7 @@ def clear_vector_store(filepath: str) -> bool:
         traceback.print_exc()
         return False
 
+
 # ============ 根据 embedding 接口创建/加载 Chroma ============
 
 def init_vector_store(
@@ -103,11 +106,8 @@ def init_vector_store(
     store_dir = get_vectorstore_dir(filepath)
     os.makedirs(store_dir, exist_ok=True)
 
-    # 将文本封装为 Document
     documents = [Document(page_content=str(t)) for t in texts]
 
-    # 因为我们是自定义的 embeddings，对接Chroma时需包装一个“langchain兼容对象”
-    # 这里示例：写一个包装函数
     from langchain.embeddings.base import Embeddings as LCEmbeddings
 
     class LCEmbeddingWrapper(LCEmbeddings):
@@ -140,7 +140,6 @@ def load_vector_store(
         logging.info("Vector store not found. Will return None.")
         return None
 
-    # 同样要包装embedding_adapter
     from langchain.embeddings.base import Embeddings as LCEmbeddings
 
     class LCEmbeddingWrapper(LCEmbeddings):
@@ -158,6 +157,7 @@ def load_vector_store(
         client_settings=Settings(anonymized_telemetry=False),
         collection_name="novel_collection"
     )
+
 
 # ============ 文本分段工具 ============
 
@@ -240,7 +240,7 @@ def update_vector_store(
     docs = [Document(page_content=str(t)) for t in splitted_texts]
     store.add_documents(docs)
     logging.info("Vector store updated with the new chapter splitted segments.")
-    
+
 # ============ 向量检索上下文 ============
 
 def get_relevant_context_from_vector_store(
@@ -287,6 +287,7 @@ def summarize_recent_chapters(
     base_url: str,
     model_name: str,
     temperature: float,
+    max_tokens: int,
     chapters_text_list: List[str]
 ) -> Tuple[str, str]:
     """
@@ -297,13 +298,13 @@ def summarize_recent_chapters(
     if not combined_text:
         return ("", "")
 
-    # 1) 构造 llm_adapter
     llm_adapter = create_llm_adapter(
         interface_format=interface_format,
         base_url=base_url,
         model_name=model_name,
         api_key=api_key,
-        temperature=temperature
+        temperature=temperature,
+        max_tokens=max_tokens
     )
 
     prompt = summarize_recent_chapters_prompt.format(combined_text=combined_text)
@@ -328,6 +329,7 @@ def summarize_recent_chapters(
 # ============ 1) 生成总体架构 ============
 
 def Novel_architecture_generate(
+    interface_format: str,
     api_key: str,
     base_url: str,
     llm_model: str,
@@ -336,7 +338,8 @@ def Novel_architecture_generate(
     number_of_chapters: int,
     word_number: int,
     filepath: str,
-    temperature: float = 0.7
+    temperature: float = 0.7,
+    max_tokens: int = 2048
 ) -> None:
     """
     依次调用:
@@ -348,13 +351,13 @@ def Novel_architecture_generate(
     """
     os.makedirs(filepath, exist_ok=True)
 
-    # 通过工厂函数创建 LLM 适配器
     llm_adapter = create_llm_adapter(
-        interface_format="openai",  # 或根据你的实际：若你在UI中就是 "OpenAI" 就传递过来
+        interface_format=interface_format,
         base_url=base_url,
         model_name=llm_model,
         api_key=api_key,
-        temperature=temperature
+        temperature=temperature,
+        max_tokens=max_tokens
     )
 
     # Step1: 核心种子
@@ -382,7 +385,6 @@ def Novel_architecture_generate(
     )
     plot_arch_result = invoke_with_cleaning(llm_adapter, prompt_plot)
 
-    # 合并
     final_content = (
         "#=== 1) 核心种子 ===\n"
         f"{core_seed_result}\n\n"
@@ -399,14 +401,17 @@ def Novel_architecture_generate(
     save_string_to_txt(final_content, arch_file)
     logging.info("Novel_architecture.txt has been generated successfully.")
 
+
 # ============ 2) 生成章节蓝图 ============
 
 def Chapter_blueprint_generate(
+    interface_format: str,
     api_key: str,
     base_url: str,
     llm_model: str,
     filepath: str,
-    temperature: float = 0.7
+    temperature: float = 0.7,
+    max_tokens: int = 2048
 ) -> None:
     arch_file = os.path.join(filepath, "Novel_architecture.txt")
     if not os.path.exists(arch_file):
@@ -432,11 +437,12 @@ def Chapter_blueprint_generate(
         plot_arch_text = m.group(1).strip()
 
     llm_adapter = create_llm_adapter(
-        interface_format="openai",  # 或实际由UI传入
+        interface_format=interface_format,
         base_url=base_url,
         model_name=llm_model,
         api_key=api_key,
-        temperature=temperature
+        temperature=temperature,
+        max_tokens=max_tokens
     )
 
     prompt = chapter_blueprint_prompt.format(
@@ -453,6 +459,7 @@ def Chapter_blueprint_generate(
     save_string_to_txt(blueprint_text, filename_dir)
 
     logging.info("Novel_directory.txt (chapter blueprint) has been generated successfully.")
+
 
 # ============ 3) 生成章节草稿 ============
 
@@ -473,7 +480,9 @@ def generate_chapter_draft(
     embedding_url: str,
     embedding_interface_format: str,
     embedding_model_name: str,
-    embedding_retrieval_k: int = 2
+    embedding_retrieval_k: int = 2,
+    interface_format: str = "openai",
+    max_tokens: int = 2048
 ) -> str:
     arch_file = os.path.join(filepath, "Novel_architecture.txt")
     novel_architecture_text = read_file(arch_file)
@@ -487,7 +496,6 @@ def generate_chapter_draft(
     character_state_file = os.path.join(filepath, "character_state.txt")
     character_state_text = read_file(character_state_file)
 
-    # 解析本章信息
     chapter_info = get_chapter_info_from_blueprint(blueprint_text, novel_number)
     chapter_title = chapter_info["chapter_title"]
     chapter_role = chapter_info["chapter_role"]
@@ -500,18 +508,17 @@ def generate_chapter_draft(
     chapters_dir = os.path.join(filepath, "chapters")
     os.makedirs(chapters_dir, exist_ok=True)
 
-    # 获取最近3章 => (短期摘要, 下一章关键字)
     recent_3_texts = get_last_n_chapters_text(chapters_dir, novel_number, n=3)
     short_summary, next_chapter_keywords = summarize_recent_chapters(
-        interface_format="openai",  # 或由UI传进
+        interface_format=interface_format,
         api_key=api_key,
         base_url=base_url,
         model_name=model_name,
         temperature=temperature,
+        max_tokens=max_tokens,
         chapters_text_list=recent_3_texts
     )
 
-    # 上一章片段(末尾1500字)
     previous_chapter_excerpt = ""
     for text_block in reversed(recent_3_texts):
         if text_block.strip():
@@ -521,7 +528,6 @@ def generate_chapter_draft(
                 previous_chapter_excerpt = text_block
             break
 
-    # 使用embedding检索上下文
     embedding_adapter = create_embedding_adapter(
         embedding_interface_format,
         embedding_api_key,
@@ -538,7 +544,6 @@ def generate_chapter_draft(
     if not relevant_context.strip():
         relevant_context = "（无检索到的上下文）"
 
-    # 组装 Prompt
     prompt_text = chapter_draft_prompt.format(
         novel_number=novel_number,
         chapter_title=chapter_title,
@@ -562,19 +567,18 @@ def generate_chapter_draft(
         context_excerpt=relevant_context
     )
 
-    # 调用 LLM 生成
     llm_adapter = create_llm_adapter(
-        interface_format="openai",  # 或由UI传进
+        interface_format=interface_format,
         base_url=base_url,
         model_name=model_name,
         api_key=api_key,
-        temperature=temperature
+        temperature=temperature,
+        max_tokens=max_tokens
     )
     chapter_content = invoke_with_cleaning(llm_adapter, prompt_text)
     if not chapter_content.strip():
         logging.warning("Generated chapter draft is empty.")
 
-    # 写入 chapter_X.txt
     chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
     clear_file_content(chapter_file)
     save_string_to_txt(chapter_content, chapter_file)
@@ -595,7 +599,9 @@ def finalize_chapter(
     embedding_api_key: str,
     embedding_url: str,
     embedding_interface_format: str,
-    embedding_model_name: str
+    embedding_model_name: str,
+    interface_format: str,
+    max_tokens: int
 ):
     chapters_dir = os.path.join(filepath, "chapters")
     chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
@@ -604,25 +610,23 @@ def finalize_chapter(
         logging.warning(f"Chapter {novel_number} is empty, cannot finalize.")
         return
 
-    # 如果篇幅过短，可以扩写
     if len(chapter_text) < 0.6 * word_number:
-        chapter_text = enrich_chapter_text(chapter_text, word_number, api_key, base_url, model_name, temperature)
+        chapter_text = enrich_chapter_text(chapter_text, word_number, api_key, base_url, model_name, temperature, interface_format, max_tokens)
         clear_file_content(chapter_file)
         save_string_to_txt(chapter_text, chapter_file)
 
-    # 读取全局摘要、角色状态
     global_summary_file = os.path.join(filepath, "global_summary.txt")
     old_global_summary = read_file(global_summary_file)
     character_state_file = os.path.join(filepath, "character_state.txt")
     old_character_state = read_file(character_state_file)
 
-    # 调用 LLM 更新全局摘要
     llm_adapter = create_llm_adapter(
-        interface_format="openai",
+        interface_format=interface_format,
         base_url=base_url,
         model_name=model_name,
         api_key=api_key,
-        temperature=temperature
+        temperature=temperature,
+        max_tokens=max_tokens
     )
     prompt_summary = summary_prompt.format(
         chapter_text=chapter_text,
@@ -632,7 +636,6 @@ def finalize_chapter(
     if not new_global_summary.strip():
         new_global_summary = old_global_summary
 
-    # 更新角色状态
     prompt_char_state = update_character_state_prompt.format(
         chapter_text=chapter_text,
         old_state=old_character_state
@@ -641,14 +644,12 @@ def finalize_chapter(
     if not new_char_state.strip():
         new_char_state = old_character_state
 
-    # 写回
     clear_file_content(global_summary_file)
     save_string_to_txt(new_global_summary, global_summary_file)
 
     clear_file_content(character_state_file)
     save_string_to_txt(new_char_state, character_state_file)
 
-    # 更新向量库
     embedding_adapter = create_embedding_adapter(
         embedding_interface_format,
         embedding_api_key,
@@ -665,14 +666,17 @@ def enrich_chapter_text(
     api_key: str,
     base_url: str,
     model_name: str,
-    temperature: float
+    temperature: float,
+    interface_format: str,
+    max_tokens: int
 ) -> str:
     llm_adapter = create_llm_adapter(
-        interface_format="openai",
+        interface_format=interface_format,
         base_url=base_url,
         model_name=model_name,
         api_key=api_key,
-        temperature=temperature
+        temperature=temperature,
+        max_tokens=max_tokens
     )
     prompt = f"""以下章节文本较短，请在保持剧情连贯的前提下进行扩写，使其更充实，接近 {word_number} 字左右：
 原内容：
@@ -680,6 +684,7 @@ def enrich_chapter_text(
 """
     enriched_text = invoke_with_cleaning(llm_adapter, prompt)
     return enriched_text if enriched_text else chapter_text
+
 
 # ============ 导入知识文件到向量库 ============
 

@@ -69,7 +69,6 @@ class OllamaEmbeddingAdapter(BaseEmbeddingAdapter):
         """
         调用 Ollama 本地服务 /api/embeddings 接口，获取文本 embedding
         """
-        # 如果 base_url 中已含 /api/embeddings，可直接用；否则拼上 /api/embeddings
         url = self.base_url
         if "api/embeddings" not in url:
             url = f"{url}/api/embeddings"
