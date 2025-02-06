@@ -208,9 +208,12 @@ class NovelGeneratorGUI:
 
     def build_ai_config_tab(self):
         def on_interface_format_changed(new_value):
-            if new_value == "OpenAI":
+            if new_value == "Ollama":
+                self.base_url_var.set("http://localhost:11434/v1")
+            elif new_value == "ML Studio":
+                self.base_url_var.set("http://localhost:1234/v1")
+            elif new_value == "OpenAI":
                 self.base_url_var.set("https://api.openai.com/v1")
-            # 可根据需要扩展 Ollama / ML Studio 等
 
         for i in range(5):
             self.ai_config_tab.grid_rowconfigure(i, weight=0)
@@ -230,7 +233,7 @@ class NovelGeneratorGUI:
 
         interface_label = ctk.CTkLabel(self.ai_config_tab, text="LLM 接口格式:", font=("Microsoft YaHei", 12))
         interface_label.grid(row=2, column=0, padx=5, pady=5, sticky="e")
-        interface_options = ["OpenAI"]
+        interface_options = ["OpenAI", "Ollama", "ML Studio"]
         interface_dropdown = ctk.CTkOptionMenu(
             self.ai_config_tab,
             values=interface_options,
@@ -268,6 +271,14 @@ class NovelGeneratorGUI:
         self.temp_value_label.grid(row=4, column=2, padx=1, pady=1, sticky="w")
 
     def build_embeddings_config_tab(self):
+        def on_embedding_interface_changed(new_value):
+            if new_value == "Ollama":
+                self.embedding_url_var.set("http://localhost:11434/api")
+            elif new_value == "ML Studio":
+                self.embedding_url_var.set("http://localhost:1234/v1")
+            elif new_value == "OpenAI":
+                self.embedding_url_var.set("https://api.openai.com/v1")
+                
         for i in range(5):
             self.embeddings_config_tab.grid_rowconfigure(i, weight=0)
         self.embeddings_config_tab.grid_columnconfigure(0, weight=0)
@@ -280,11 +291,12 @@ class NovelGeneratorGUI:
 
         emb_interface_label = ctk.CTkLabel(self.embeddings_config_tab, text="Embedding 接口格式:", font=("Microsoft YaHei", 12))
         emb_interface_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
-        emb_interface_options = ["OpenAI"]  # 可扩展
+        emb_interface_options = ["OpenAI", "Ollama", "ML Studio"]
         emb_interface_dropdown = ctk.CTkOptionMenu(
             self.embeddings_config_tab,
             values=emb_interface_options,
             variable=self.embedding_interface_format_var,
+            command=on_embedding_interface_changed,
             font=("Microsoft YaHei", 12)
         )
         emb_interface_dropdown.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")

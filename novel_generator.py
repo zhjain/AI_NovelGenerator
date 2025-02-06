@@ -501,11 +501,9 @@ def summarize_recent_chapters(
     )
 
     combined_text = "\n".join(chapters_text_list)
-    prompt = f"""你是一名资深长篇小说写作辅助AI，下面是最近几章的合并文本：
-{combined_text}
+    prompt = f"""你是一名资深长篇小说编辑，分析以下合并文本：\n\n {combined_text} \n\n
 
-请用中文输出不超过1000字的摘要，只包含主要剧情进展、角色变化、冲突焦点等要点：
-重点强调最后一章的重要内容，以及最后一幕场景细节。
+从中提取并预测下一章节的关键字[关键物品/人物/地点/事件/情节]
 """
 
     summary_text = invoke_with_cleaning(model, prompt)
@@ -622,16 +620,7 @@ def generate_chapter_draft(
     if not relevant_context.strip():
         relevant_context = "（无检索到的上下文）"
 
-    # 5) 构造prompt
-    # 拆分 world_building_text, novel_architecture_text 等等
-    world_building_text = ""
-    match_world = re.search(r'#=== 3\) 世界观 ===\n([\s\S]+?)\n#===', novel_architecture_text)
-    if match_world:
-        world_building_text = match_world.group(1).strip()
-    else:
-        world_building_text = "暂无世界观信息"
-
-    novel_setting_text = novel_architecture_text  # 整份当做“小说设定”参考
+    novel_setting_text = novel_architecture_text
 
     prompt_text = scene_dynamics_prompt.format(
         novel_number=novel_number,
@@ -648,7 +637,6 @@ def generate_chapter_draft(
         scene_location=scene_location,
         time_constraint=time_constraint,
 
-        world_building=world_building_text,
         novel_setting=novel_setting_text,
         global_summary=global_summary_text,
         character_state=character_state_text
@@ -656,7 +644,7 @@ def generate_chapter_draft(
 
     # 合并检索到的上下文和用户指导
     prompt_text += f"\n\n【检索到的上下文】\n{relevant_context}"
-    prompt_text += f"\n\n【用户指导】\n{user_guidance}\n"
+    prompt_text += f"\n\n【章节额外指导】\n{user_guidance}\n"
 
     model = ChatOpenAI(
         model=model_name,
@@ -847,7 +835,7 @@ def import_knowledge_file(
     # 尝试加载已有的向量库
     store = load_vector_store(
         api_key=embedding_api_key,
-        base_url=embedding_url if embedding_url else "http://localhost:11434/v1",
+        base_url=embedding_url if embedding_url else "http://localhost:11434/api",
         interface_format=embedding_interface_format,
         embedding_model_name=embedding_model_name,
         filepath=filepath
@@ -856,7 +844,7 @@ def import_knowledge_file(
         logging.info("Vector store does not exist. Initializing a new one for knowledge import...")
         init_vector_store(
             api_key=embedding_api_key,
-            base_url=embedding_url if embedding_url else "http://localhost:11434/v1",
+            base_url=embedding_url if embedding_url else "http://localhost:11434/api",
             interface_format=embedding_interface_format,
             embedding_model_name=embedding_model_name,
             texts=paragraphs,
