@@ -414,7 +414,8 @@ def summarize_recent_chapters(
     model_name: str,
     temperature: float,
     max_tokens: int,
-    chapters_text_list: List[str]
+    chapters_text_list: List[str],
+    timeout: int = 600
 ) -> Tuple[str, str]:
     """
     生成 (short_summary, next_chapter_keywords)
@@ -430,7 +431,8 @@ def summarize_recent_chapters(
         model_name=model_name,
         api_key=api_key,
         temperature=temperature,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        timeout=timeout
     )
 
     prompt = summarize_recent_chapters_prompt.format(combined_text=combined_text)
@@ -572,7 +574,8 @@ def Chapter_blueprint_generate(
     filepath: str,
     number_of_chapters: int,
     temperature: float = 0.7,
-    max_tokens: int = 2048
+    max_tokens: int = 4096,
+    timeout: int = 600
 ) -> None:
     """
     如果章节数小于等于 chunk_size，则直接使用 chapter_blueprint_prompt 一次性生成。
@@ -605,7 +608,8 @@ def Chapter_blueprint_generate(
         model_name=llm_model,
         api_key=api_key,
         temperature=temperature,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        timeout=timeout
     )
 
     # 计算分块大小
@@ -702,7 +706,8 @@ def generate_chapter_draft(
     embedding_model_name: str,
     embedding_retrieval_k: int = 2,
     interface_format: str = "openai",
-    max_tokens: int = 2048
+    max_tokens: int = 2048,
+    timeout: int = 600
 ) -> str:
     """
     根据 novel_number 判断是否为第一章。
@@ -775,7 +780,8 @@ def generate_chapter_draft(
             model_name=model_name,
             temperature=temperature,
             max_tokens=max_tokens,
-            chapters_text_list=recent_3_texts
+            chapters_text_list=recent_3_texts,
+            timeout=timeout
         )
 
         # 从最近章节中获取最后一段内容作为前章结尾
@@ -836,7 +842,8 @@ def generate_chapter_draft(
         model_name=model_name,
         api_key=api_key,
         temperature=temperature,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        timeout=timeout
     )
     chapter_content = invoke_with_cleaning(llm_adapter, prompt_text)
     if not chapter_content.strip():
@@ -871,7 +878,8 @@ def finalize_chapter(
     embedding_interface_format: str,
     embedding_model_name: str,
     interface_format: str,
-    max_tokens: int
+    max_tokens: int,
+    timeout: int = 600
 ):
     progress = load_progress()
     if novel_number in progress.get("chapters_finalized", []):
@@ -902,7 +910,8 @@ def finalize_chapter(
         model_name=model_name,
         api_key=api_key,
         temperature=temperature,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        timeout=timeout
     )
     prompt_summary = summary_prompt.format(
         chapter_text=chapter_text,
