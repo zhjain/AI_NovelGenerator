@@ -137,18 +137,19 @@ def create_llm_adapter(
     model_name: str,
     api_key: str,
     temperature: float,
-    max_tokens: int
+    max_tokens: int,
+    timeout: int
 ) -> BaseLLMAdapter:
     """
     工厂函数：根据 interface_format 返回不同的适配器实例。
     """
     if interface_format.lower() == "deepseek":
-        return DeepSeekAdapter(api_key, base_url, model_name, max_tokens, temperature)
+        return DeepSeekAdapter(api_key, base_url, model_name, max_tokens, temperature, timeout)
     elif interface_format.lower() == "openai":
-        return OpenAIAdapter(api_key, base_url, model_name, max_tokens, temperature)
+        return OpenAIAdapter(api_key, base_url, model_name, max_tokens, temperature, timeout)
     elif interface_format.lower() == "ollama":
-        return OllamaAdapter(api_key, base_url, model_name, max_tokens, temperature)
+        return OllamaAdapter(api_key, base_url, model_name, max_tokens, temperature, timeout)
     elif interface_format.lower() == "ml studio":
-        return MLStudioAdapter(api_key, base_url, model_name, max_tokens, temperature)
+        return MLStudioAdapter(api_key, base_url, model_name, max_tokens, temperature, timeout)
     else:
         raise ValueError(f"Unknown interface_format: {interface_format}")

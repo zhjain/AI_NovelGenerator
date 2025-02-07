@@ -467,7 +467,8 @@ def Novel_architecture_generate(
     word_number: int,
     filepath: str,
     temperature: float = 0.7,
-    max_tokens: int = 2048
+    max_tokens: int = 2048,
+    timeout: int = 600
 ) -> None:
     """
     依次调用:
@@ -491,7 +492,8 @@ def Novel_architecture_generate(
         model_name=llm_model,
         api_key=api_key,
         temperature=temperature,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        timeout=timeout
     )
 
     # Step1: 核心种子
@@ -895,7 +897,7 @@ def finalize_chapter(
 
     # 如果内容过短，则尝试扩写
     if len(chapter_text) < 0.7 * word_number:
-        chapter_text = enrich_chapter_text(chapter_text, word_number, api_key, base_url, model_name, temperature, interface_format, max_tokens)
+        chapter_text = enrich_chapter_text(chapter_text, word_number, api_key, base_url, model_name, temperature, interface_format, max_tokens, timeout)
         clear_file_content(chapter_file)
         save_string_to_txt(chapter_text, chapter_file)
 
@@ -959,7 +961,8 @@ def enrich_chapter_text(
     model_name: str,
     temperature: float,
     interface_format: str,
-    max_tokens: int
+    max_tokens: int,
+    timeout: int=600
 ) -> str:
     llm_adapter = create_llm_adapter(
         interface_format=interface_format,
@@ -967,7 +970,8 @@ def enrich_chapter_text(
         model_name=model_name,
         api_key=api_key,
         temperature=temperature,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        timeout=timeout
     )
     prompt = f"""以下章节文本较短，请在保持剧情连贯的前提下进行扩写，使其更充实，接近 {word_number} 字左右：
 原内容：
