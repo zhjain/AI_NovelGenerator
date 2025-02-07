@@ -5,9 +5,6 @@ from typing import Optional
 from langchain_openai import ChatOpenAI
 
 def ensure_openai_base_url_has_v1(url: str) -> str:
-    """
-    若用户输入的 url 不包含 '/v1'，则在末尾追加 '/v1'。
-    """
     import re
     url = url.strip()
     if not url:
@@ -28,19 +25,21 @@ class DeepSeekAdapter(BaseLLMAdapter):
     """
     适配官方/OpenAI兼容接口（使用 langchain.ChatOpenAI）
     """
-    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7):
+    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7, timeout: Optional[int] = 600):
         self.base_url = ensure_openai_base_url_has_v1(base_url)
         self.api_key = api_key
         self.model_name = model_name
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.timeout = timeout
 
         self._client = ChatOpenAI(
             model=self.model_name,
             api_key=self.api_key,
             base_url=self.base_url,
             max_tokens=self.max_tokens,
-            temperature=self.temperature
+            temperature=self.temperature,
+            timeout=self.timeout
         )
 
     def invoke(self, prompt: str) -> str:
@@ -54,19 +53,21 @@ class OpenAIAdapter(BaseLLMAdapter):
     """
     适配官方/OpenAI兼容接口（使用 langchain.ChatOpenAI）
     """
-    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7):
+    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7, timeout: Optional[int] = 600):
         self.base_url = ensure_openai_base_url_has_v1(base_url)
         self.api_key = api_key
         self.model_name = model_name
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.timeout = timeout
 
         self._client = ChatOpenAI(
             model=self.model_name,
             api_key=self.api_key,
             base_url=self.base_url,
             max_tokens=self.max_tokens,
-            temperature=self.temperature
+            temperature=self.temperature,
+            timeout=self.timeout
         )
 
     def invoke(self, prompt: str) -> str:
@@ -81,19 +82,21 @@ class OllamaAdapter(BaseLLMAdapter):
     Ollama 同样有一个 OpenAI-like /v1/chat 接口，可直接使用 ChatOpenAI。
     但是通常 Ollama 默认本地服务在 http://localhost:11434，如果符合OpenAI风格即可直接传参。
     """
-    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7):
+    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7, timeout: Optional[int] = 600):
         self.base_url = ensure_openai_base_url_has_v1(base_url)
         self.api_key = api_key
         self.model_name = model_name
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.timeout = timeout
 
         self._client = ChatOpenAI(
             model=self.model_name,
             api_key=self.api_key,
             base_url=self.base_url,
             max_tokens=self.max_tokens,
-            temperature=self.temperature
+            temperature=self.temperature,
+            timeout=self.timeout
         )
 
     def invoke(self, prompt: str) -> str:
@@ -104,19 +107,21 @@ class OllamaAdapter(BaseLLMAdapter):
         return response.content
 
 class MLStudioAdapter(BaseLLMAdapter):
-    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7):
+    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7, timeout: Optional[int] = 600):
         self.base_url = ensure_openai_base_url_has_v1(base_url)
         self.api_key = api_key
         self.model_name = model_name
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.timeout = timeout
 
         self._client = ChatOpenAI(
             model=self.model_name,
             api_key=self.api_key,
             base_url=self.base_url,
             max_tokens=self.max_tokens,
-            temperature=self.temperature
+            temperature=self.temperature,
+            timeout=self.timeout
         )
 
     def invoke(self, prompt: str) -> str:
