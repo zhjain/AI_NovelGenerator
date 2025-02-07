@@ -6,6 +6,7 @@ import os
 import threading
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
+import tkinter as tk
 import traceback
 
 from config_manager import load_config, save_config
@@ -24,6 +25,55 @@ from consistency_checker import check_consistency
 
 # ---- Import the tooltip texts ----
 from tooltips import tooltips
+
+# 新增：右键菜单功能 --------------------------------------------
+class TextWidgetContextMenu:
+    def __init__(self, widget):
+        self.widget = widget
+        self.menu = tk.Menu(widget, tearoff=0)
+        self.menu.add_command(label="复制", command=self.copy)
+        self.menu.add_command(label="粘贴", command=self.paste)
+        self.menu.add_command(label="剪切", command=self.cut)
+        self.menu.add_separator()
+        self.menu.add_command(label="全选", command=self.select_all)
+        
+        # 绑定右键事件
+        self.widget.bind("<Button-3>", self.show_menu)
+        
+    def show_menu(self, event):
+        if isinstance(self.widget, ctk.CTkTextbox):
+            try:
+                self.menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                self.menu.grab_release()
+            
+    def copy(self):
+        try:
+            text = self.widget.get("sel.first", "sel.last")
+            self.widget.clipboard_clear()
+            self.widget.clipboard_append(text)
+        except tk.TclError:
+            pass  # 没有选中文本时忽略错误
+
+    def paste(self):
+        try:
+            text = self.widget.clipboard_get()
+            self.widget.insert("insert", text)
+        except tk.TclError:
+            pass  # 剪贴板为空时忽略错误
+
+    def cut(self):
+        try:
+            text = self.widget.get("sel.first", "sel.last")
+            self.widget.delete("sel.first", "sel.last")
+            self.widget.clipboard_clear()
+            self.widget.clipboard_append(text)
+        except tk.TclError:
+            pass  # 没有选中文本时忽略错误
+
+    def select_all(self):
+        self.widget.tag_add("sel", "1.0", "end")
+
 
 def log_error(message: str):
     logging.error(f"{message}\n{traceback.format_exc()}")
@@ -134,6 +184,7 @@ class NovelGeneratorGUI:
         chapter_label.grid(row=0, column=0, padx=5, pady=(5, 0), sticky="w")
 
         self.chapter_result = ctk.CTkTextbox(self.left_frame, wrap="word", font=("Microsoft YaHei", 14))
+        TextWidgetContextMenu(self.chapter_result)  # 新增右键菜单
         self.chapter_result.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 5))
 
         # Step 按钮区域
@@ -178,6 +229,7 @@ class NovelGeneratorGUI:
         log_label.grid(row=3, column=0, padx=5, pady=(5, 0), sticky="w")
 
         self.log_text = ctk.CTkTextbox(self.left_frame, wrap="word", font=("Microsoft YaHei", 12))
+        TextWidgetContextMenu(self.log_text)  # 新增右键菜单
         self.log_text.grid(row=4, column=0, sticky="nsew", padx=5, pady=(0, 5))
         self.log_text.configure(state="disabled")
 
@@ -475,6 +527,7 @@ class NovelGeneratorGUI:
             sticky="ne"
         )
         self.topic_text = ctk.CTkTextbox(self.params_frame, height=80, wrap="word", font=("Microsoft YaHei", 12))
+        TextWidgetContextMenu(self.topic_text)  # 新增右键菜单
         self.topic_text.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
         if self.topic_default:
             self.topic_text.insert("0.0", self.topic_default)
@@ -562,6 +615,7 @@ class NovelGeneratorGUI:
             sticky="ne"
         )
         self.user_guide_text = ctk.CTkTextbox(self.params_frame, height=80, wrap="word", font=("Microsoft YaHei", 12))
+        TextWidgetContextMenu(self.user_guide_text)  # 新增右键菜单
         self.user_guide_text.grid(row=row_user_guide, column=1, padx=5, pady=5, sticky="nsew")
 
         # 7) 可选元素：核心人物/关键道具/空间坐标/时间压力
@@ -1089,6 +1143,7 @@ class NovelGeneratorGUI:
         save_btn.grid(row=0, column=0, padx=5, pady=5, sticky="e")
 
         self.setting_text = ctk.CTkTextbox(self.setting_tab, wrap="word", font=("Microsoft YaHei", 12))
+        TextWidgetContextMenu(self.setting_text)  # 新增右键菜单
         self.setting_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
 
     def load_novel_architecture(self):
@@ -1135,6 +1190,7 @@ class NovelGeneratorGUI:
         save_btn.grid(row=0, column=0, padx=5, pady=5, sticky="e")
 
         self.directory_text = ctk.CTkTextbox(self.directory_tab, wrap="word", font=("Microsoft YaHei", 12))
+        TextWidgetContextMenu(self.directory_text)  # 新增右键菜单
         self.directory_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
 
     def load_chapter_blueprint(self):
@@ -1181,6 +1237,7 @@ class NovelGeneratorGUI:
         save_btn.grid(row=0, column=0, padx=5, pady=5, sticky="e")
 
         self.character_text = ctk.CTkTextbox(self.character_tab, wrap="word", font=("Microsoft YaHei", 12))
+        TextWidgetContextMenu(self.character_text)  # 新增右键菜单
         self.character_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
 
     def load_character_state(self):
@@ -1227,6 +1284,7 @@ class NovelGeneratorGUI:
         save_btn.grid(row=0, column=0, padx=5, pady=5, sticky="e")
 
         self.summary_text = ctk.CTkTextbox(self.summary_tab, wrap="word", font=("Microsoft YaHei", 12))
+        TextWidgetContextMenu(self.summary_text)  # 新增右键菜单
         self.summary_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
 
     def load_global_summary(self):
@@ -1288,6 +1346,7 @@ class NovelGeneratorGUI:
         refresh_btn.grid(row=0, column=4, padx=5, pady=5, sticky="e")
 
         self.chapter_view_text = ctk.CTkTextbox(self.chapters_view_tab, wrap="word", font=("Microsoft YaHei", 12))
+        TextWidgetContextMenu(self.chapter_view_text)  # 新增右键菜单
         self.chapter_view_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
 
         self.chapters_list = []
