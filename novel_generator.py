@@ -46,45 +46,6 @@ from embedding_adapters import create_embedding_adapter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-
-# ============ 进度文件管理 ============
-
-PROGRESS_FILE = "progress.json"
-
-def load_progress() -> dict:
-    """
-    简易进度文件读取，如果不存在则返回默认空字典。
-    你也可以在这里定制更多的进度信息。
-    """
-    if not os.path.exists(PROGRESS_FILE):
-        return {
-            "architecture_done": False,
-            "blueprint_done": False,
-            "blueprint_chunk_index": 1,  # 若有分块生成，则记录当前分块的起始
-            # 也可以记录已完成的章节
-            "chapters_generated": [],   # 已经生成草稿的章节列表
-            "chapters_finalized": []    # 已经定稿的章节列表
-        }
-    try:
-        with open(PROGRESS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {
-            "architecture_done": False,
-            "blueprint_done": False,
-            "blueprint_chunk_index": 1,
-            "chapters_generated": [],
-            "chapters_finalized": []
-        }
-
-def save_progress(progress: dict):
-    """
-    将进度写入到 progress.json 中。
-    """
-    with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
-        json.dump(progress, f, ensure_ascii=False, indent=2)
-
-
 # ============ 通用的重试封装 ============
 
 def call_with_retry(func, max_retries=3, sleep_time=2, fallback_return=None, **kwargs):
@@ -183,7 +144,6 @@ def init_vector_store(
 
     documents = [Document(page_content=str(t)) for t in texts]
 
-    # 包一层try，如果embedding在初始化或插入过程中报错，则跳过
     try:
         class LCEmbeddingWrapper(LCEmbeddings):
             def embed_documents(self, doc_texts: List[str]) -> List[List[float]]:
@@ -454,6 +414,37 @@ def summarize_recent_chapters(
     return (short_summary, next_chapter_keywords)
 
 
+# ============ 持久化：情节架构（partial_architecture.json） ============
+
+def load_partial_architecture_data(filepath: str) -> dict:
+    """
+    从 filepath 下的 partial_architecture.json 读取已有的阶段性数据。
+    如果文件不存在或无法解析，返回空 dict。
+    """
+    partial_file = os.path.join(filepath, "partial_architecture.json")
+    if not os.path.exists(partial_file):
+        return {}
+
+    try:
+        with open(partial_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data
+    except Exception as e:
+        logging.warning(f"Failed to load partial_architecture.json: {e}")
+        return {}
+
+def save_partial_architecture_data(filepath: str, data: dict):
+    """
+    将阶段性数据写入 partial_architecture.json。
+    """
+    partial_file = os.path.join(filepath, "partial_architecture.json")
+    try:
+        with open(partial_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logging.warning(f"Failed to save partial_architecture.json: {e}")
+
+
 # ============ 1) 生成总体架构 ============
 
 def Novel_architecture_generate(
@@ -476,15 +467,14 @@ def Novel_architecture_generate(
       2. character_dynamics_prompt
       3. world_building_prompt
       4. plot_architecture_prompt
+    若在中间任何一步报错且重试多次失败，则将已经生成的内容写入 partial_architecture.json 并退出；
+    下次调用时可从该步骤继续。
     最终输出 Novel_architecture.txt
-    如果已生成，则不重复执行（利用 progress.json 中的标记）。
     """
-    progress = load_progress()
-    if progress.get("architecture_done", False):
-        logging.info("Novel architecture generation is already done. Skip.")
-        return
-
     os.makedirs(filepath, exist_ok=True)
+
+    # 加载已有的阶段性数据
+    partial_data = load_partial_architecture_data(filepath)
 
     llm_adapter = create_llm_adapter(
         interface_format=interface_format,
@@ -497,29 +487,77 @@ def Novel_architecture_generate(
     )
 
     # Step1: 核心种子
-    prompt_core = core_seed_prompt.format(
-        topic=topic,
-        genre=genre,
-        number_of_chapters=number_of_chapters,
-        word_number=word_number
-    )
-    core_seed_result = invoke_with_cleaning(llm_adapter, prompt_core)
+    if "core_seed_result" not in partial_data:
+        logging.info("Step1: Generating core_seed_prompt (核心种子) ...")
+        prompt_core = core_seed_prompt.format(
+            topic=topic,
+            genre=genre,
+            number_of_chapters=number_of_chapters,
+            word_number=word_number
+        )
+        core_seed_result = invoke_with_cleaning(llm_adapter, prompt_core)
+        if not core_seed_result.strip():
+            # 多次重试依旧失败，则写入已完成内容后退出
+            logging.warning("core_seed_prompt generation failed and returned empty.")
+            save_partial_architecture_data(filepath, partial_data)
+            return
+        partial_data["core_seed_result"] = core_seed_result
+        save_partial_architecture_data(filepath, partial_data)
+    else:
+        logging.info("Step1 already done. Skipping...")
 
     # Step2: 角色动力学
-    prompt_character = character_dynamics_prompt.format(core_seed=core_seed_result.strip())
-    character_dynamics_result = invoke_with_cleaning(llm_adapter, prompt_character)
+    if "character_dynamics_result" not in partial_data:
+        logging.info("Step2: Generating character_dynamics_prompt ...")
+        prompt_character = character_dynamics_prompt.format(core_seed=partial_data["core_seed_result"].strip())
+        character_dynamics_result = invoke_with_cleaning(llm_adapter, prompt_character)
+        if not character_dynamics_result.strip():
+            logging.warning("character_dynamics_prompt generation failed.")
+            # 写入目前已有结果，然后退出
+            save_partial_architecture_data(filepath, partial_data)
+            return
+        partial_data["character_dynamics_result"] = character_dynamics_result
+        save_partial_architecture_data(filepath, partial_data)
+    else:
+        logging.info("Step2 already done. Skipping...")
 
     # Step3: 世界观
-    prompt_world = world_building_prompt.format(core_seed=core_seed_result.strip())
-    world_building_result = invoke_with_cleaning(llm_adapter, prompt_world)
+    if "world_building_result" not in partial_data:
+        logging.info("Step3: Generating world_building_prompt ...")
+        prompt_world = world_building_prompt.format(core_seed=partial_data["core_seed_result"].strip())
+        world_building_result = invoke_with_cleaning(llm_adapter, prompt_world)
+        if not world_building_result.strip():
+            logging.warning("world_building_prompt generation failed.")
+            save_partial_architecture_data(filepath, partial_data)
+            return
+        partial_data["world_building_result"] = world_building_result
+        save_partial_architecture_data(filepath, partial_data)
+    else:
+        logging.info("Step3 already done. Skipping...")
 
     # Step4: 三幕式情节
-    prompt_plot = plot_architecture_prompt.format(
-        core_seed=core_seed_result.strip(),
-        character_dynamics=character_dynamics_result.strip(),
-        world_building=world_building_result.strip()
-    )
-    plot_arch_result = invoke_with_cleaning(llm_adapter, prompt_plot)
+    if "plot_arch_result" not in partial_data:
+        logging.info("Step4: Generating plot_architecture_prompt ...")
+        prompt_plot = plot_architecture_prompt.format(
+            core_seed=partial_data["core_seed_result"].strip(),
+            character_dynamics=partial_data["character_dynamics_result"].strip(),
+            world_building=partial_data["world_building_result"].strip()
+        )
+        plot_arch_result = invoke_with_cleaning(llm_adapter, prompt_plot)
+        if not plot_arch_result.strip():
+            logging.warning("plot_architecture_prompt generation failed.")
+            save_partial_architecture_data(filepath, partial_data)
+            return
+        partial_data["plot_arch_result"] = plot_arch_result
+        save_partial_architecture_data(filepath, partial_data)
+    else:
+        logging.info("Step4 already done. Skipping...")
+
+    # 如果能走到这里，说明全部步骤都完成了
+    core_seed_result = partial_data["core_seed_result"]
+    character_dynamics_result = partial_data["character_dynamics_result"]
+    world_building_result = partial_data["world_building_result"]
+    plot_arch_result = partial_data["plot_arch_result"]
 
     final_content = (
         "#=== 0) 小说设定 ===\n"
@@ -539,9 +577,12 @@ def Novel_architecture_generate(
     save_string_to_txt(final_content, arch_file)
     logging.info("Novel_architecture.txt has been generated successfully.")
 
-    # 更新进度
-    progress["architecture_done"] = True
-    save_progress(progress)
+    # 全部生成完成后，可以考虑删除 partial_architecture.json，或保留做追溯
+    # 这里选择删除
+    partial_arch_file = os.path.join(filepath, "partial_architecture.json")
+    if os.path.exists(partial_arch_file):
+        os.remove(partial_arch_file)
+        logging.info("partial_architecture.json removed (all steps completed).")
 
 
 # ============ 计算分块大小的工具函数 ============
@@ -555,9 +596,7 @@ def compute_chunk_size(number_of_chapters: int, max_tokens: int) -> int:
     """
     tokens_per_chapter = 100.0
     ratio = max_tokens / tokens_per_chapter  # 例如：8192 / 100 = 81.92
-    # 先取到最接近的10倍
     ratio_rounded_to_10 = int(ratio // 10) * 10  # => 80
-    # 再减10
     chunk_size = ratio_rounded_to_10 - 10       # => 70
     if chunk_size < 1:
         chunk_size = 1
@@ -566,7 +605,7 @@ def compute_chunk_size(number_of_chapters: int, max_tokens: int) -> int:
     return chunk_size
 
 
-# ============ 2) 生成章节蓝图（新增分块逻辑） ============
+# ============ 2) 生成章节蓝图（新增分块逻辑 + 断点续跑） ============
 
 def Chapter_blueprint_generate(
     interface_format: str,
@@ -580,20 +619,13 @@ def Chapter_blueprint_generate(
     timeout: int = 600
 ) -> None:
     """
-    如果章节数小于等于 chunk_size，则直接使用 chapter_blueprint_prompt 一次性生成。
-    如果章节数较多，则进行分块生成：
-      1) 首先说明要生成的总章节数
-      2) 先生成 [1..chunk_size] 的章节
-      3) 将生成的文本作为已有目录传入，继续生成 [chunk_size+1..] 的章节
-      4) 最后汇总全部章节目录写入 Novel_directory.txt
-
-    过程中若发生错误，会进行一定次数重试；若仍失败则保留已生成的结果，方便下次中断续作。
+    若 Novel_directory.txt 已存在且内容非空，则表示可能是之前的部分生成结果；
+      解析其中已有的章节数，从下一个章节继续分块生成；
+    否则：
+      - 若章节数 <= chunk_size，直接一次性生成
+      - 若章节数 > chunk_size，进行分块生成
+    生成完成后输出至 Novel_directory.txt。
     """
-    progress = load_progress()
-    if progress.get("blueprint_done", False):
-        logging.info("Chapter blueprint generation is already done. Skip.")
-        return
-
     arch_file = os.path.join(filepath, "Novel_architecture.txt")
     if not os.path.exists(arch_file):
         logging.warning("Novel_architecture.txt not found. Please generate architecture first.")
@@ -614,11 +646,65 @@ def Chapter_blueprint_generate(
         timeout=timeout
     )
 
-    # 计算分块大小
+    filename_dir = os.path.join(filepath, "Novel_directory.txt")
+    if not os.path.exists(filename_dir):
+        # 如果文件不存在，就先建一个空文件
+        open(filename_dir, "w", encoding="utf-8").close()
+
+    existing_blueprint = read_file(filename_dir).strip()
     chunk_size = compute_chunk_size(number_of_chapters, max_tokens)
     logging.info(f"Number of chapters = {number_of_chapters}, computed chunk_size = {chunk_size}.")
 
-    # 如果一次就可以生成全部
+    # 如果已经有部分章节蓝图生成了，则进行断点续跑
+    if existing_blueprint:
+        logging.info("Detected existing blueprint content. Will resume chunked generation from that point.")
+
+        pattern = r"第\s*(\d+)\s*章"
+        existing_chapter_numbers = re.findall(pattern, existing_blueprint)
+        existing_chapter_numbers = [int(x) for x in existing_chapter_numbers if x.isdigit()]
+
+        if existing_chapter_numbers:
+            max_existing_chap = max(existing_chapter_numbers)
+        else:
+            max_existing_chap = 0
+
+        logging.info(f"Existing blueprint indicates up to chapter {max_existing_chap} has been generated.")
+
+        final_blueprint = existing_blueprint
+        current_start = max_existing_chap + 1
+        while current_start <= number_of_chapters:
+            current_end = min(current_start + chunk_size - 1, number_of_chapters)
+
+            chunk_prompt = chunked_chapter_blueprint_prompt.format(
+                novel_architecture=architecture_text,
+                chapter_list=final_blueprint,      # 已有的章节列表文本
+                number_of_chapters=number_of_chapters,
+                n=current_start,
+                m=current_end
+            )
+            logging.info(f"Generating chapters [{current_start}..{current_end}] in a chunk...")
+
+            chunk_result = invoke_with_cleaning(llm_adapter, chunk_prompt)
+            if not chunk_result.strip():
+                logging.warning(f"Chunk generation for chapters [{current_start}..{current_end}] is empty.")
+                # 写入当前已经有的 final_blueprint，并结束
+                clear_file_content(filename_dir)
+                save_string_to_txt(final_blueprint.strip(), filename_dir)
+                return
+
+            final_blueprint += "\n\n" + chunk_result.strip()
+
+            # 实时写入，以免中途崩溃造成丢失
+            clear_file_content(filename_dir)
+            save_string_to_txt(final_blueprint.strip(), filename_dir)
+
+            current_start = current_end + 1
+
+        logging.info("All chapters blueprint have been generated (resumed chunked).")
+        return
+
+    # 如果 Novel_directory.txt 为空，则分情况：
+    # 1) 如果 chunk_size >= number_of_chapters，可以一次性生成
     if chunk_size >= number_of_chapters:
         prompt = chapter_blueprint_prompt.format(
             novel_architecture=architecture_text,
@@ -629,25 +715,21 @@ def Chapter_blueprint_generate(
             logging.warning("Chapter blueprint generation result is empty.")
             return
 
-        filename_dir = os.path.join(filepath, "Novel_directory.txt")
         clear_file_content(filename_dir)
         save_string_to_txt(blueprint_text, filename_dir)
         logging.info("Novel_directory.txt (chapter blueprint) has been generated successfully (single-shot).")
-
-        progress["blueprint_done"] = True
-        save_progress(progress)
         return
 
-    # 否则，分块生成
+    # 2) 如果 chunk_size < number_of_chapters，则进行分块生成
+    logging.info("Will generate chapter blueprint in chunked mode from scratch.")
     final_blueprint = ""
-    current_start = progress.get("blueprint_chunk_index", 1)  # 若之前中断，则从上一次的 chunk index 开始
+    current_start = 1
     while current_start <= number_of_chapters:
         current_end = min(current_start + chunk_size - 1, number_of_chapters)
 
-        # 分块提示
         chunk_prompt = chunked_chapter_blueprint_prompt.format(
             novel_architecture=architecture_text,
-            chapter_list=final_blueprint,      # 已有的章节列表文本
+            chapter_list=final_blueprint,  # 已有的章节列表文本
             number_of_chapters=number_of_chapters,
             n=current_start,
             m=current_end
@@ -657,34 +739,23 @@ def Chapter_blueprint_generate(
         chunk_result = invoke_with_cleaning(llm_adapter, chunk_prompt)
         if not chunk_result.strip():
             logging.warning(f"Chunk generation for chapters [{current_start}..{current_end}] is empty.")
-            chunk_result = ""
+            # 写入已经生成的 final_blueprint
+            clear_file_content(filename_dir)
+            save_string_to_txt(final_blueprint.strip(), filename_dir)
+            return
 
-        # 将本次生成的文本拼接到最终结果中
         if final_blueprint.strip():
-            final_blueprint += "\n\n" + chunk_result
+            final_blueprint += "\n\n" + chunk_result.strip()
         else:
-            final_blueprint = chunk_result
+            final_blueprint = chunk_result.strip()
 
-        # 更新下一个块
-        current_start = current_end + 1
-
-        # 将当前的 final_blueprint 写入文件，以便中断后保留
-        filename_dir = os.path.join(filepath, "Novel_directory.txt")
+        # 实时写入，以免中途崩溃造成丢失
         clear_file_content(filename_dir)
         save_string_to_txt(final_blueprint.strip(), filename_dir)
 
-        # 更新进度，以便中断后能接着来
-        progress["blueprint_chunk_index"] = current_start
-        save_progress(progress)
+        current_start = current_end + 1
 
-    if not final_blueprint.strip():
-        logging.warning("All chunked generation results are empty, cannot create blueprint.")
-        return
-
-    # 生成完成
     logging.info("Novel_directory.txt (chapter blueprint) has been generated successfully (chunked).")
-    progress["blueprint_done"] = True
-    save_progress(progress)
 
 
 # ============ 3) 生成章节草稿 ============
@@ -715,16 +786,8 @@ def generate_chapter_draft(
     根据 novel_number 判断是否为第一章。
     - 若是第一章，则使用 first_chapter_draft_prompt
     - 否则使用 next_chapter_draft_prompt
-    生成草稿后存入 chapters/chapter_{novel_number}.txt
+    最终将生成文本存入 chapters/chapter_{novel_number}.txt。
     """
-    progress = load_progress()
-    if novel_number in progress.get("chapters_generated", []):
-        logging.info(f"Chapter {novel_number} draft already generated. Skip.")
-        # 直接返回已有内容
-        chapters_dir = os.path.join(filepath, "chapters")
-        chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
-        return read_file(chapter_file)
-
     arch_file = os.path.join(filepath, "Novel_architecture.txt")
     novel_architecture_text = read_file(arch_file)
 
@@ -751,11 +814,11 @@ def generate_chapter_draft(
     chapters_dir = os.path.join(filepath, "chapters")
     os.makedirs(chapters_dir, exist_ok=True)
 
-    # 根据是否是第一章，选择不同的 Prompt
+    # 判断是否为第一章
     if novel_number == 1:
-        # 使用第一章提示词
         prompt_text = first_chapter_draft_prompt.format(
             novel_number=novel_number,
+            word_number=word_number,
             chapter_title=chapter_title,
             chapter_role=chapter_role,
             chapter_purpose=chapter_purpose,
@@ -773,7 +836,7 @@ def generate_chapter_draft(
             novel_setting=novel_architecture_text
         )
     else:
-        # 若不是第一章，则先获取最近几章文本，并做摘要与检索
+        # 若不是第一章，则获取最近几章文本，并做摘要与检索
         recent_3_texts = get_last_n_chapters_text(chapters_dir, novel_number, n=3)
         short_summary, next_chapter_keywords = summarize_recent_chapters(
             interface_format=interface_format,
@@ -786,17 +849,18 @@ def generate_chapter_draft(
             timeout=timeout
         )
 
-        # 从最近章节中获取最后一段内容作为前章结尾
+        # 从最近章节中获取最后一段作为前章结尾
         previous_chapter_excerpt = ""
         for text_block in reversed(recent_3_texts):
             if text_block.strip():
+                # 取后1500字符左右
                 if len(text_block) > 1500:
                     previous_chapter_excerpt = text_block[-1500:]
                 else:
                     previous_chapter_excerpt = text_block
                 break
 
-        # 从向量库检索上下文（若失败则为空，不中断）
+        # 从向量库检索上下文
         embedding_adapter = create_embedding_adapter(
             embedding_interface_format,
             embedding_api_key,
@@ -813,9 +877,9 @@ def generate_chapter_draft(
         if not relevant_context.strip():
             relevant_context = "（无检索到的上下文）"
 
-        # 使用后续章节提示词
         prompt_text = next_chapter_draft_prompt.format(
             novel_number=novel_number,
+            word_number=word_number,
             chapter_title=chapter_title,
             chapter_role=chapter_role,
             chapter_purpose=chapter_purpose,
@@ -837,7 +901,6 @@ def generate_chapter_draft(
             previous_chapter_excerpt=previous_chapter_excerpt
         )
 
-    # 调用LLM生成
     llm_adapter = create_llm_adapter(
         interface_format=interface_format,
         base_url=base_url,
@@ -847,21 +910,16 @@ def generate_chapter_draft(
         max_tokens=max_tokens,
         timeout=timeout
     )
+
     chapter_content = invoke_with_cleaning(llm_adapter, prompt_text)
     if not chapter_content.strip():
         logging.warning("Generated chapter draft is empty.")
 
-    # 保存章节文本
     chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
     clear_file_content(chapter_file)
     save_string_to_txt(chapter_content, chapter_file)
 
     logging.info(f"[Draft] Chapter {novel_number} generated as a draft.")
-
-    # 更新进度
-    progress["chapters_generated"].append(novel_number)
-    save_progress(progress)
-
     return chapter_content
 
 
@@ -883,11 +941,10 @@ def finalize_chapter(
     max_tokens: int,
     timeout: int = 600
 ):
-    progress = load_progress()
-    if novel_number in progress.get("chapters_finalized", []):
-        logging.info(f"Chapter {novel_number} is already finalized. Skip.")
-        return
-
+    """
+    对指定章节做最终处理：更新全局摘要、更新角色状态、插入向量库等。
+    默认无需再做扩写操作，若有需要可在外部调用 enrich_chapter_text 处理后再定稿。
+    """
     chapters_dir = os.path.join(filepath, "chapters")
     chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
     chapter_text = read_file(chapter_file).strip()
@@ -895,14 +952,10 @@ def finalize_chapter(
         logging.warning(f"Chapter {novel_number} is empty, cannot finalize.")
         return
 
-    # 如果内容过短，则尝试扩写
-    if len(chapter_text) < 0.7 * word_number:
-        chapter_text = enrich_chapter_text(chapter_text, word_number, api_key, base_url, model_name, temperature, interface_format, max_tokens, timeout)
-        clear_file_content(chapter_file)
-        save_string_to_txt(chapter_text, chapter_file)
-
+    # 进行摘要、角色状态更新
     global_summary_file = os.path.join(filepath, "global_summary.txt")
     old_global_summary = read_file(global_summary_file)
+
     character_state_file = os.path.join(filepath, "character_state.txt")
     old_character_state = read_file(character_state_file)
 
@@ -915,6 +968,7 @@ def finalize_chapter(
         max_tokens=max_tokens,
         timeout=timeout
     )
+
     prompt_summary = summary_prompt.format(
         chapter_text=chapter_text,
         global_summary=old_global_summary
@@ -937,7 +991,7 @@ def finalize_chapter(
     clear_file_content(character_state_file)
     save_string_to_txt(new_char_state, character_state_file)
 
-    # 更新向量库（若失败则跳过）
+    # 更新向量库
     embedding_adapter = create_embedding_adapter(
         embedding_interface_format,
         embedding_api_key,
@@ -947,10 +1001,6 @@ def finalize_chapter(
     update_vector_store(embedding_adapter, chapter_text, filepath)
 
     logging.info(f"Chapter {novel_number} has been finalized.")
-
-    # 更新进度
-    progress["chapters_finalized"].append(novel_number)
-    save_progress(progress)
 
 
 def enrich_chapter_text(
@@ -964,6 +1014,9 @@ def enrich_chapter_text(
     max_tokens: int,
     timeout: int=600
 ) -> str:
+    """
+    对章节文本进行扩写，使其更接近 word_number 字数，保持剧情连贯。
+    """
     llm_adapter = create_llm_adapter(
         interface_format=interface_format,
         base_url=base_url,

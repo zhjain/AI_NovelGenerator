@@ -19,7 +19,8 @@ from novel_generator import (
     finalize_chapter,
     import_knowledge_file,
     clear_vector_store,
-    get_last_n_chapters_text
+    get_last_n_chapters_text,
+    enrich_chapter_text
 )
 from consistency_checker import check_consistency
 
@@ -105,7 +106,6 @@ class NovelGeneratorGUI:
         self.model_name_var = ctk.StringVar(value=self.loaded_config.get("model_name", "gpt-4o-mini"))
         self.temperature_var = ctk.DoubleVar(value=self.loaded_config.get("temperature", 0.7))
         self.max_tokens_var = ctk.IntVar(value=self.loaded_config.get("max_tokens", 8192))
-        # === New: Timeout ===
         self.timeout_var = ctk.IntVar(value=self.loaded_config.get("timeout", 600))
 
         # Embedding相关
@@ -265,16 +265,12 @@ class NovelGeneratorGUI:
         self.build_ai_config_tab()
         self.build_embeddings_config_tab()
 
-    # 封装一个小工具函数，用来创建「标签 + 问号按钮」的组合
     def create_label_with_help(self, parent, label_text, tooltip_key, row, column, font=None, sticky="e", padx=5, pady=5):
-        # frame容器：同一格子里存放 label + "?"按钮
         frame = ctk.CTkFrame(parent)
         frame.grid(row=row, column=column, padx=padx, pady=pady, sticky=sticky)
         frame.columnconfigure(0, weight=0)
-        # 先放 label
         label = ctk.CTkLabel(frame, text=label_text, font=font)
         label.pack(side="left")
-        # 再放问号按钮
         btn = ctk.CTkButton(
             frame,
             text="?",
@@ -418,7 +414,6 @@ class NovelGeneratorGUI:
         self.max_tokens_value_label.grid(row=5, column=2, padx=5, pady=5, sticky="w")
 
         # 7) Timeout (sec)
-        # === MODIFIED: 使用Slider替换Entry ===
         self.create_label_with_help(
             parent=self.ai_config_tab,
             label_text="Timeout (sec):",
@@ -435,7 +430,7 @@ class NovelGeneratorGUI:
         timeout_slider = ctk.CTkSlider(
             self.ai_config_tab,
             from_=0,
-            to=3600,  # 设定一个合理上限，例如1小时
+            to=3600,
             number_of_steps=3600,
             command=update_timeout_label,
             variable=self.timeout_var
@@ -448,7 +443,6 @@ class NovelGeneratorGUI:
             font=("Microsoft YaHei", 12)
         )
         self.timeout_value_label.grid(row=6, column=2, padx=5, pady=5, sticky="w")
-        # === MODIFIED END ===
 
     def build_embeddings_config_tab(self):
         def on_embedding_interface_changed(new_value):
@@ -585,7 +579,6 @@ class NovelGeneratorGUI:
         chapter_word_frame.grid(row=row_for_chapter_and_word, column=1, padx=5, pady=5, sticky="ew")
         chapter_word_frame.columnconfigure((0, 1, 2, 3), weight=0)
 
-        # 左边标签
         label_frame = self.create_label_with_help(
             parent=self.params_frame,
             label_text="章节数 & 每章字数:",
@@ -595,7 +588,6 @@ class NovelGeneratorGUI:
             font=("Microsoft YaHei", 12)
         )
 
-        # 输入框
         num_chapters_label = ctk.CTkLabel(chapter_word_frame, text="章节数:", font=("Microsoft YaHei", 12))
         num_chapters_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
         num_chapters_entry = ctk.CTkEntry(chapter_word_frame, textvariable=self.num_chapters_var, width=60, font=("Microsoft YaHei", 12))
@@ -655,7 +647,6 @@ class NovelGeneratorGUI:
 
         # 7) 可选元素：核心人物/关键道具/空间坐标/时间压力
         row_idx = 6
-        # 核心人物
         self.create_label_with_help(
             parent=self.params_frame,
             label_text="核心人物:",
@@ -668,7 +659,6 @@ class NovelGeneratorGUI:
         char_inv_entry.grid(row=row_idx, column=1, padx=5, pady=5, sticky="ew")
         row_idx += 1
 
-        # 关键道具
         self.create_label_with_help(
             parent=self.params_frame,
             label_text="关键道具:",
@@ -681,7 +671,6 @@ class NovelGeneratorGUI:
         key_items_entry.grid(row=row_idx, column=1, padx=5, pady=5, sticky="ew")
         row_idx += 1
 
-        # 空间坐标
         self.create_label_with_help(
             parent=self.params_frame,
             label_text="空间坐标:",
@@ -694,7 +683,6 @@ class NovelGeneratorGUI:
         scene_loc_entry.grid(row=row_idx, column=1, padx=5, pady=5, sticky="ew")
         row_idx += 1
 
-        # 时间压力
         self.create_label_with_help(
             parent=self.params_frame,
             label_text="时间压力:",
@@ -1011,13 +999,44 @@ class NovelGeneratorGUI:
                 word_number = self.safe_get_int(self.word_number_var, 3000)
 
                 self.safe_log(f"开始定稿第{chap_num}章...")
+
+                # 先读取用户在文本框中编辑好的内容
                 chapters_dir = os.path.join(filepath, "chapters")
                 os.makedirs(chapters_dir, exist_ok=True)
                 chapter_file = os.path.join(chapters_dir, f"chapter_{chap_num}.txt")
+
                 edited_text = self.chapter_result.get("0.0", "end").strip()
+
+                # 如果字数不足70%，询问是否扩写
+                if len(edited_text) < 0.7 * word_number:
+                    ask = messagebox.askyesno(
+                        "字数不足",
+                        f"当前章节字数 ({len(edited_text)}) 低于目标字数({word_number})的70%，是否要尝试扩写？"
+                    )
+                    if ask:
+                        # 调用 enrich_chapter_text 进行扩写
+                        self.safe_log("正在扩写章节内容...")
+                        enriched = enrich_chapter_text(
+                            chapter_text=edited_text,
+                            word_number=word_number,
+                            api_key=api_key,
+                            base_url=base_url,
+                            model_name=model_name,
+                            temperature=temperature,
+                            interface_format=interface_format,
+                            max_tokens=max_tokens,
+                            timeout=timeout_val
+                        )
+                        edited_text = enriched
+                        # 更新文本框显示
+                        self.master.after(0, lambda: self.chapter_result.delete("0.0", "end"))
+                        self.master.after(0, lambda: self.chapter_result.insert("0.0", edited_text))
+
+                # 将（可能已扩写的）文本保存到本地文件
                 clear_file_content(chapter_file)
                 save_string_to_txt(edited_text, chapter_file)
 
+                # 调用 finalize_chapter 做最终处理
                 finalize_chapter(
                     novel_number=chap_num,
                     word_number=word_number,
@@ -1163,7 +1182,7 @@ class NovelGeneratorGUI:
         text_area.insert("0.0", arcs_text)
         text_area.configure(state="disabled")
 
-    # ============ 其余标签页: Novel Architecture, Chapter Blueprint, Character State, Summary ============
+    # ============ 其余标签页 ============
     def build_setting_tab(self):
         self.setting_tab.rowconfigure(0, weight=0)
         self.setting_tab.rowconfigure(1, weight=1)
