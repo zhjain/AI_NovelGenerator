@@ -105,6 +105,8 @@ class NovelGeneratorGUI:
         self.model_name_var = ctk.StringVar(value=self.loaded_config.get("model_name", "gpt-4o-mini"))
         self.temperature_var = ctk.DoubleVar(value=self.loaded_config.get("temperature", 0.7))
         self.max_tokens_var = ctk.IntVar(value=self.loaded_config.get("max_tokens", 8192))
+        # === New: Timeout ===
+        self.timeout_var = ctk.IntVar(value=self.loaded_config.get("timeout", 600))
 
         # Embedding相关
         self.embedding_interface_format_var = ctk.StringVar(value=self.loaded_config.get("embedding_interface_format", "OpenAI"))
@@ -295,7 +297,7 @@ class NovelGeneratorGUI:
             elif new_value == "DeepSeek":
                 self.base_url_var.set("https://api.deepseek.com/v1")
 
-        for i in range(6):
+        for i in range(7):
             self.ai_config_tab.grid_rowconfigure(i, weight=0)
         self.ai_config_tab.grid_columnconfigure(0, weight=0)
         self.ai_config_tab.grid_columnconfigure(1, weight=1)
@@ -414,6 +416,39 @@ class NovelGeneratorGUI:
             font=("Microsoft YaHei", 12)
         )
         self.max_tokens_value_label.grid(row=5, column=2, padx=5, pady=5, sticky="w")
+
+        # 7) Timeout (sec)
+        # === MODIFIED: 使用Slider替换Entry ===
+        self.create_label_with_help(
+            parent=self.ai_config_tab,
+            label_text="Timeout (sec):",
+            tooltip_key="timeout",
+            row=6,
+            column=0,
+            font=("Microsoft YaHei", 12)
+        )
+
+        def update_timeout_label(value):
+            integer_val = int(float(value))
+            self.timeout_value_label.configure(text=str(integer_val))
+
+        timeout_slider = ctk.CTkSlider(
+            self.ai_config_tab,
+            from_=0,
+            to=3600,  # 设定一个合理上限，例如1小时
+            number_of_steps=3600,
+            command=update_timeout_label,
+            variable=self.timeout_var
+        )
+        timeout_slider.grid(row=6, column=1, padx=5, pady=5, sticky="we")
+
+        self.timeout_value_label = ctk.CTkLabel(
+            self.ai_config_tab,
+            text=str(self.timeout_var.get()),
+            font=("Microsoft YaHei", 12)
+        )
+        self.timeout_value_label.grid(row=6, column=2, padx=5, pady=5, sticky="w")
+        # === MODIFIED END ===
 
     def build_embeddings_config_tab(self):
         def on_embedding_interface_changed(new_value):
@@ -718,6 +753,7 @@ class NovelGeneratorGUI:
             self.model_name_var.set(cfg.get("model_name", ""))
             self.temperature_var.set(cfg.get("temperature", 0.7))
             self.max_tokens_var.set(cfg.get("max_tokens", 2048))
+            self.timeout_var.set(cfg.get("timeout", 600))
 
             self.embedding_api_key_var.set(cfg.get("embedding_api_key", ""))
             self.embedding_interface_format_var.set(cfg.get("embedding_interface_format", "OpenAI"))
@@ -746,13 +782,12 @@ class NovelGeneratorGUI:
             "model_name": self.model_name_var.get(),
             "temperature": self.temperature_var.get(),
             "max_tokens": self.max_tokens_var.get(),
-
+            "timeout": self.safe_get_int(self.timeout_var, 600),
             "embedding_api_key": self.embedding_api_key_var.get(),
             "embedding_interface_format": self.embedding_interface_format_var.get(),
             "embedding_url": self.embedding_url_var.get(),
             "embedding_model_name": self.embedding_model_name_var.get(),
             "embedding_retrieval_k": self.safe_get_int(self.embedding_retrieval_k_var, 4),
-
             "topic": self.topic_text.get("0.0", "end").strip(),
             "genre": self.genre_var.get(),
             "num_chapters": self.safe_get_int(self.num_chapters_var, 10),
@@ -806,6 +841,7 @@ class NovelGeneratorGUI:
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
                 max_tokens = self.max_tokens_var.get()
+                timeout_val = self.safe_get_int(self.timeout_var, 600)
 
                 topic = self.topic_text.get("0.0", "end").strip()
                 genre = self.genre_var.get().strip()
@@ -824,7 +860,8 @@ class NovelGeneratorGUI:
                     word_number=word_number,
                     filepath=filepath,
                     temperature=temperature,
-                    max_tokens=max_tokens
+                    max_tokens=max_tokens,
+                    timeout=timeout_val
                 )
                 self.safe_log("✅ 小说架构生成完成。请在 'Novel Architecture' 标签页查看或编辑。")
             except Exception:
@@ -851,6 +888,7 @@ class NovelGeneratorGUI:
                 number_of_chapters = self.safe_get_int(self.num_chapters_var, 10)
                 temperature = self.temperature_var.get()
                 max_tokens = self.max_tokens_var.get()
+                timeout_val = self.safe_get_int(self.timeout_var, 600)
 
                 self.safe_log("开始生成章节蓝图...")
                 Chapter_blueprint_generate(
@@ -861,7 +899,8 @@ class NovelGeneratorGUI:
                     number_of_chapters=number_of_chapters,
                     filepath=filepath,
                     temperature=temperature,
-                    max_tokens=max_tokens
+                    max_tokens=max_tokens,
+                    timeout=timeout_val
                 )
                 self.safe_log("✅ 章节蓝图生成完成。请在 'Chapter Blueprint' 标签页查看或编辑。")
             except Exception:
@@ -887,6 +926,7 @@ class NovelGeneratorGUI:
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
                 max_tokens = self.max_tokens_var.get()
+                timeout_val = self.safe_get_int(self.timeout_var, 600)
 
                 chap_num = self.safe_get_int(self.chapter_num_var, 1)
                 word_number = self.safe_get_int(self.word_number_var, 3000)
@@ -923,7 +963,8 @@ class NovelGeneratorGUI:
                     embedding_model_name=embedding_model_name,
                     embedding_retrieval_k=embedding_k,
                     interface_format=interface_format,
-                    max_tokens=max_tokens
+                    max_tokens=max_tokens,
+                    timeout=timeout_val
                 )
                 if draft_text:
                     self.safe_log(f"✅ 第{chap_num}章草稿生成完成。请在左侧查看或编辑。")
@@ -959,6 +1000,7 @@ class NovelGeneratorGUI:
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
                 max_tokens = self.max_tokens_var.get()
+                timeout_val = self.safe_get_int(self.timeout_var, 600)
 
                 embedding_api_key = self.embedding_api_key_var.get().strip()
                 embedding_url = self.embedding_url_var.get().strip()
@@ -989,7 +1031,8 @@ class NovelGeneratorGUI:
                     embedding_interface_format=embedding_interface_format,
                     embedding_model_name=embedding_model_name,
                     interface_format=interface_format,
-                    max_tokens=max_tokens
+                    max_tokens=max_tokens,
+                    timeout=timeout_val
                 )
                 self.safe_log(f"✅ 第{chap_num}章定稿完成（已更新全局摘要、角色状态、向量库）。")
 

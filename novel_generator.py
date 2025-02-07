@@ -5,6 +5,7 @@ import logging
 import re
 import time
 import traceback
+import json
 from typing import List, Optional, Tuple
 
 from langchain_chroma import Chroma
@@ -46,6 +47,69 @@ from embedding_adapters import create_embedding_adapter
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
+# ============ 进度文件管理 ============
+
+PROGRESS_FILE = "progress.json"
+
+def load_progress() -> dict:
+    """
+    简易进度文件读取，如果不存在则返回默认空字典。
+    你也可以在这里定制更多的进度信息。
+    """
+    if not os.path.exists(PROGRESS_FILE):
+        return {
+            "architecture_done": False,
+            "blueprint_done": False,
+            "blueprint_chunk_index": 1,  # 若有分块生成，则记录当前分块的起始
+            # 也可以记录已完成的章节
+            "chapters_generated": [],   # 已经生成草稿的章节列表
+            "chapters_finalized": []    # 已经定稿的章节列表
+        }
+    try:
+        with open(PROGRESS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {
+            "architecture_done": False,
+            "blueprint_done": False,
+            "blueprint_chunk_index": 1,
+            "chapters_generated": [],
+            "chapters_finalized": []
+        }
+
+def save_progress(progress: dict):
+    """
+    将进度写入到 progress.json 中。
+    """
+    with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
+        json.dump(progress, f, ensure_ascii=False, indent=2)
+
+
+# ============ 通用的重试封装 ============
+
+def call_with_retry(func, max_retries=3, sleep_time=2, fallback_return=None, **kwargs):
+    """
+    通用的重试机制封装。
+    :param func: 要执行的函数
+    :param max_retries: 最大重试次数
+    :param sleep_time: 重试前的等待秒数
+    :param fallback_return: 如果多次重试仍失败时的返回值
+    :param kwargs: 传给func的命名参数
+    :return: func的结果，若失败则返回 fallback_return
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            return func(**kwargs)
+        except Exception as e:
+            logging.warning(f"[call_with_retry] Attempt {attempt} failed with error: {e}")
+            traceback.print_exc()
+            if attempt < max_retries:
+                time.sleep(sleep_time)
+            else:
+                logging.error("Max retries reached, returning fallback_return.")
+                return fallback_return
+
+
 # ============ 工具函数 ============
 
 def remove_think_tags(text: str) -> str:
@@ -61,10 +125,16 @@ def debug_log(prompt: str, response_content: str):
     )
 
 def invoke_with_cleaning(llm_adapter, prompt: str) -> str:
-    """通用封装：调用 LLM，并移除 <think>...</think> 文本，记录日志后返回"""
-    response = llm_adapter.invoke(prompt)
+    """
+    对 LLM 的调用增加了重试封装，
+    如果多次失败，则返回空字符串以继续流程，而不是中断。
+    """
+    def _invoke(prompt):
+        return llm_adapter.invoke(prompt)
+
+    response = call_with_retry(func=_invoke, max_retries=3, fallback_return="", prompt=prompt)
     if not response:
-        logging.warning("No response from model.")
+        logging.warning("No response from model after retry. Return empty.")
         return ""
     cleaned_text = remove_think_tags(response)
     debug_log(prompt, cleaned_text)
@@ -75,6 +145,7 @@ def invoke_with_cleaning(llm_adapter, prompt: str) -> str:
 
 def get_vectorstore_dir(filepath: str) -> str:
     return os.path.join(filepath, "vectorstore")
+
 
 # ============ 清空向量库 ============
 
@@ -100,35 +171,52 @@ def init_vector_store(
     embedding_adapter,
     texts: List[str],
     filepath: str
-) -> Chroma:
+) -> Optional[Chroma]:
     """
     在 filepath 下创建/加载一个 Chroma 向量库并插入 texts。
-    这里 embedding_adapter 是一个实现了 embed_documents(texts) 的对象
+    如果Embedding失败，则返回 None，不中断任务。
     """
+    from langchain.embeddings.base import Embeddings as LCEmbeddings
+
     store_dir = get_vectorstore_dir(filepath)
     os.makedirs(store_dir, exist_ok=True)
 
     documents = [Document(page_content=str(t)) for t in texts]
 
-    from langchain.embeddings.base import Embeddings as LCEmbeddings
+    # 包一层try，如果embedding在初始化或插入过程中报错，则跳过
+    try:
+        class LCEmbeddingWrapper(LCEmbeddings):
+            def embed_documents(self, doc_texts: List[str]) -> List[List[float]]:
+                return call_with_retry(
+                    func=embedding_adapter.embed_documents,
+                    max_retries=3,
+                    fallback_return=[],
+                    doc_texts=doc_texts
+                )
 
-    class LCEmbeddingWrapper(LCEmbeddings):
-        def embed_documents(self, doc_texts: List[str]) -> List[List[float]]:
-            return embedding_adapter.embed_documents(doc_texts)
+            def embed_query(self, query_text: str) -> List[float]:
+                res = call_with_retry(
+                    func=embedding_adapter.embed_query,
+                    max_retries=3,
+                    fallback_return=[],
+                    query_text=query_text
+                )
+                return res
 
-        def embed_query(self, query_text: str) -> List[float]:
-            return embedding_adapter.embed_query(query_text)
+        chroma_embedding = LCEmbeddingWrapper()
 
-    chroma_embedding = LCEmbeddingWrapper()
-
-    vectorstore = Chroma.from_documents(
-        documents,
-        embedding=chroma_embedding,
-        persist_directory=store_dir,
-        client_settings=Settings(anonymized_telemetry=False),
-        collection_name="novel_collection"
-    )
-    return vectorstore
+        vectorstore = Chroma.from_documents(
+            documents,
+            embedding=chroma_embedding,
+            persist_directory=store_dir,
+            client_settings=Settings(anonymized_telemetry=False),
+            collection_name="novel_collection"
+        )
+        return vectorstore
+    except Exception as e:
+        logging.warning(f"Init vector store failed: {e}")
+        traceback.print_exc()
+        return None
 
 def load_vector_store(
     embedding_adapter,
@@ -136,6 +224,7 @@ def load_vector_store(
 ) -> Optional[Chroma]:
     """
     读取已存在的 Chroma 向量库。若不存在则返回 None。
+    如果加载失败（embedding 或IO问题），则返回 None。
     """
     store_dir = get_vectorstore_dir(filepath)
     if not os.path.exists(store_dir):
@@ -144,21 +233,37 @@ def load_vector_store(
 
     from langchain.embeddings.base import Embeddings as LCEmbeddings
 
-    class LCEmbeddingWrapper(LCEmbeddings):
-        def embed_documents(self, doc_texts: List[str]) -> List[List[float]]:
-            return embedding_adapter.embed_documents(doc_texts)
+    try:
+        class LCEmbeddingWrapper(LCEmbeddings):
+            def embed_documents(self, doc_texts: List[str]) -> List[List[float]]:
+                return call_with_retry(
+                    func=embedding_adapter.embed_documents,
+                    max_retries=3,
+                    fallback_return=[],
+                    doc_texts=doc_texts
+                )
 
-        def embed_query(self, query_text: str) -> List[float]:
-            return embedding_adapter.embed_query(query_text)
+            def embed_query(self, query_text: str) -> List[float]:
+                res = call_with_retry(
+                    func=embedding_adapter.embed_query,
+                    max_retries=3,
+                    fallback_return=[],
+                    query_text=query_text
+                )
+                return res
 
-    chroma_embedding = LCEmbeddingWrapper()
+        chroma_embedding = LCEmbeddingWrapper()
 
-    return Chroma(
-        persist_directory=store_dir,
-        embedding_function=chroma_embedding,
-        client_settings=Settings(anonymized_telemetry=False),
-        collection_name="novel_collection"
-    )
+        return Chroma(
+            persist_directory=store_dir,
+            embedding_function=chroma_embedding,
+            client_settings=Settings(anonymized_telemetry=False),
+            collection_name="novel_collection"
+        )
+    except Exception as e:
+        logging.warning(f"Failed to load vector store: {e}")
+        traceback.print_exc()
+        return None
 
 
 # ============ 文本分段工具 ============
@@ -218,6 +323,7 @@ def split_text_for_vectorstore(chapter_text: str,
 
     return final_segments
 
+
 # ============ 更新向量库 ============
 
 def update_vector_store(
@@ -226,7 +332,8 @@ def update_vector_store(
     filepath: str
 ):
     """
-    将最新章节文本插入到向量库中。若库不存在则初始化。
+    将最新章节文本插入到向量库中。
+    若库不存在则初始化；若初始化/更新失败，则跳过。
     """
     splitted_texts = split_text_for_vectorstore(new_chapter)
     if not splitted_texts:
@@ -235,13 +342,23 @@ def update_vector_store(
 
     store = load_vector_store(embedding_adapter, filepath)
     if not store:
-        logging.info("Vector store does not exist. Initializing a new one for new chapter...")
-        init_vector_store(embedding_adapter, splitted_texts, filepath)
+        logging.info("Vector store does not exist or failed to load. Initializing a new one for new chapter...")
+        store = init_vector_store(embedding_adapter, splitted_texts, filepath)
+        if not store:
+            logging.warning("Init vector store failed, skip embedding.")
+        else:
+            logging.info("New vector store created successfully.")
         return
 
-    docs = [Document(page_content=str(t)) for t in splitted_texts]
-    store.add_documents(docs)
-    logging.info("Vector store updated with the new chapter splitted segments.")
+    # 如果已有store，则直接往里插入
+    try:
+        docs = [Document(page_content=str(t)) for t in splitted_texts]
+        store.add_documents(docs)
+        logging.info("Vector store updated with the new chapter splitted segments.")
+    except Exception as e:
+        logging.warning(f"Failed to update vector store: {e}")
+        traceback.print_exc()
+
 
 # ============ 向量检索上下文 ============
 
@@ -253,19 +370,25 @@ def get_relevant_context_from_vector_store(
 ) -> str:
     """
     从向量库中检索与 query 最相关的 k 条文本，拼接后返回。
+    如果向量库加载/检索失败，则返回空字符串。
     """
     store = load_vector_store(embedding_adapter, filepath)
     if not store:
-        logging.info("No vector store found. Returning empty context.")
+        logging.info("No vector store found or load failed. Returning empty context.")
         return ""
 
-    docs = store.similarity_search(query, k=k)
-    if not docs:
-        logging.info(f"No relevant documents found for query '{query}'. Returning empty context.")
+    try:
+        docs = store.similarity_search(query, k=k)
+        if not docs:
+            logging.info(f"No relevant documents found for query '{query}'. Returning empty context.")
+            return ""
+        combined = "\n".join([d.page_content for d in docs])
+        return combined
+    except Exception as e:
+        logging.warning(f"Similarity search failed: {e}")
+        traceback.print_exc()
         return ""
 
-    combined = "\n".join([d.page_content for d in docs])
-    return combined
 
 # ============ 从目录中获取最近 n 章文本 ============
 
@@ -281,6 +404,7 @@ def get_last_n_chapters_text(chapters_dir: str, current_chapter_num: int, n: int
             texts.append("")
     return texts
 
+
 # ============ 提炼(短期摘要, 下一章关键字) ============
 
 def summarize_recent_chapters(
@@ -290,7 +414,8 @@ def summarize_recent_chapters(
     model_name: str,
     temperature: float,
     max_tokens: int,
-    chapters_text_list: List[str]
+    chapters_text_list: List[str],
+    timeout: int = 600
 ) -> Tuple[str, str]:
     """
     生成 (short_summary, next_chapter_keywords)
@@ -306,7 +431,8 @@ def summarize_recent_chapters(
         model_name=model_name,
         api_key=api_key,
         temperature=temperature,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        timeout=timeout
     )
 
     prompt = summarize_recent_chapters_prompt.format(combined_text=combined_text)
@@ -341,7 +467,8 @@ def Novel_architecture_generate(
     word_number: int,
     filepath: str,
     temperature: float = 0.7,
-    max_tokens: int = 2048
+    max_tokens: int = 2048,
+    timeout: int = 600
 ) -> None:
     """
     依次调用:
@@ -350,7 +477,13 @@ def Novel_architecture_generate(
       3. world_building_prompt
       4. plot_architecture_prompt
     最终输出 Novel_architecture.txt
+    如果已生成，则不重复执行（利用 progress.json 中的标记）。
     """
+    progress = load_progress()
+    if progress.get("architecture_done", False):
+        logging.info("Novel architecture generation is already done. Skip.")
+        return
+
     os.makedirs(filepath, exist_ok=True)
 
     llm_adapter = create_llm_adapter(
@@ -359,7 +492,8 @@ def Novel_architecture_generate(
         model_name=llm_model,
         api_key=api_key,
         temperature=temperature,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        timeout=timeout
     )
 
     # Step1: 核心种子
@@ -405,6 +539,10 @@ def Novel_architecture_generate(
     save_string_to_txt(final_content, arch_file)
     logging.info("Novel_architecture.txt has been generated successfully.")
 
+    # 更新进度
+    progress["architecture_done"] = True
+    save_progress(progress)
+
 
 # ============ 计算分块大小的工具函数 ============
 
@@ -438,7 +576,8 @@ def Chapter_blueprint_generate(
     filepath: str,
     number_of_chapters: int,
     temperature: float = 0.7,
-    max_tokens: int = 2048
+    max_tokens: int = 4096,
+    timeout: int = 600
 ) -> None:
     """
     如果章节数小于等于 chunk_size，则直接使用 chapter_blueprint_prompt 一次性生成。
@@ -447,7 +586,14 @@ def Chapter_blueprint_generate(
       2) 先生成 [1..chunk_size] 的章节
       3) 将生成的文本作为已有目录传入，继续生成 [chunk_size+1..] 的章节
       4) 最后汇总全部章节目录写入 Novel_directory.txt
+
+    过程中若发生错误，会进行一定次数重试；若仍失败则保留已生成的结果，方便下次中断续作。
     """
+    progress = load_progress()
+    if progress.get("blueprint_done", False):
+        logging.info("Chapter blueprint generation is already done. Skip.")
+        return
+
     arch_file = os.path.join(filepath, "Novel_architecture.txt")
     if not os.path.exists(arch_file):
         logging.warning("Novel_architecture.txt not found. Please generate architecture first.")
@@ -464,7 +610,8 @@ def Chapter_blueprint_generate(
         model_name=llm_model,
         api_key=api_key,
         temperature=temperature,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        timeout=timeout
     )
 
     # 计算分块大小
@@ -486,11 +633,14 @@ def Chapter_blueprint_generate(
         clear_file_content(filename_dir)
         save_string_to_txt(blueprint_text, filename_dir)
         logging.info("Novel_directory.txt (chapter blueprint) has been generated successfully (single-shot).")
+
+        progress["blueprint_done"] = True
+        save_progress(progress)
         return
 
     # 否则，分块生成
     final_blueprint = ""
-    current_start = 1
+    current_start = progress.get("blueprint_chunk_index", 1)  # 若之前中断，则从上一次的 chunk index 开始
     while current_start <= number_of_chapters:
         current_end = min(current_start + chunk_size - 1, number_of_chapters)
 
@@ -515,20 +665,29 @@ def Chapter_blueprint_generate(
         else:
             final_blueprint = chunk_result
 
+        # 更新下一个块
         current_start = current_end + 1
+
+        # 将当前的 final_blueprint 写入文件，以便中断后保留
+        filename_dir = os.path.join(filepath, "Novel_directory.txt")
+        clear_file_content(filename_dir)
+        save_string_to_txt(final_blueprint.strip(), filename_dir)
+
+        # 更新进度，以便中断后能接着来
+        progress["blueprint_chunk_index"] = current_start
+        save_progress(progress)
 
     if not final_blueprint.strip():
         logging.warning("All chunked generation results are empty, cannot create blueprint.")
         return
 
-    filename_dir = os.path.join(filepath, "Novel_directory.txt")
-    clear_file_content(filename_dir)
-    save_string_to_txt(final_blueprint.strip(), filename_dir)
-
+    # 生成完成
     logging.info("Novel_directory.txt (chapter blueprint) has been generated successfully (chunked).")
+    progress["blueprint_done"] = True
+    save_progress(progress)
 
 
-# ============ 3) 生成章节草稿（分「第一章」与「后续章节」） ============
+# ============ 3) 生成章节草稿 ============
 
 def generate_chapter_draft(
     api_key: str,
@@ -549,13 +708,23 @@ def generate_chapter_draft(
     embedding_model_name: str,
     embedding_retrieval_k: int = 2,
     interface_format: str = "openai",
-    max_tokens: int = 2048
+    max_tokens: int = 2048,
+    timeout: int = 600
 ) -> str:
     """
     根据 novel_number 判断是否为第一章。
     - 若是第一章，则使用 first_chapter_draft_prompt
     - 否则使用 next_chapter_draft_prompt
+    生成草稿后存入 chapters/chapter_{novel_number}.txt
     """
+    progress = load_progress()
+    if novel_number in progress.get("chapters_generated", []):
+        logging.info(f"Chapter {novel_number} draft already generated. Skip.")
+        # 直接返回已有内容
+        chapters_dir = os.path.join(filepath, "chapters")
+        chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
+        return read_file(chapter_file)
+
     arch_file = os.path.join(filepath, "Novel_architecture.txt")
     novel_architecture_text = read_file(arch_file)
 
@@ -582,7 +751,7 @@ def generate_chapter_draft(
     chapters_dir = os.path.join(filepath, "chapters")
     os.makedirs(chapters_dir, exist_ok=True)
 
-    # 如果是第一章，不需要前情检索与前章结尾
+    # 根据是否是第一章，选择不同的 Prompt
     if novel_number == 1:
         # 使用第一章提示词
         prompt_text = first_chapter_draft_prompt.format(
@@ -603,7 +772,6 @@ def generate_chapter_draft(
 
             novel_setting=novel_architecture_text
         )
-
     else:
         # 若不是第一章，则先获取最近几章文本，并做摘要与检索
         recent_3_texts = get_last_n_chapters_text(chapters_dir, novel_number, n=3)
@@ -614,7 +782,8 @@ def generate_chapter_draft(
             model_name=model_name,
             temperature=temperature,
             max_tokens=max_tokens,
-            chapters_text_list=recent_3_texts
+            chapters_text_list=recent_3_texts,
+            timeout=timeout
         )
 
         # 从最近章节中获取最后一段内容作为前章结尾
@@ -627,7 +796,7 @@ def generate_chapter_draft(
                     previous_chapter_excerpt = text_block
                 break
 
-        # 从向量库检索上下文
+        # 从向量库检索上下文（若失败则为空，不中断）
         embedding_adapter = create_embedding_adapter(
             embedding_interface_format,
             embedding_api_key,
@@ -675,7 +844,8 @@ def generate_chapter_draft(
         model_name=model_name,
         api_key=api_key,
         temperature=temperature,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        timeout=timeout
     )
     chapter_content = invoke_with_cleaning(llm_adapter, prompt_text)
     if not chapter_content.strip():
@@ -687,6 +857,11 @@ def generate_chapter_draft(
     save_string_to_txt(chapter_content, chapter_file)
 
     logging.info(f"[Draft] Chapter {novel_number} generated as a draft.")
+
+    # 更新进度
+    progress["chapters_generated"].append(novel_number)
+    save_progress(progress)
+
     return chapter_content
 
 
@@ -705,8 +880,14 @@ def finalize_chapter(
     embedding_interface_format: str,
     embedding_model_name: str,
     interface_format: str,
-    max_tokens: int
+    max_tokens: int,
+    timeout: int = 600
 ):
+    progress = load_progress()
+    if novel_number in progress.get("chapters_finalized", []):
+        logging.info(f"Chapter {novel_number} is already finalized. Skip.")
+        return
+
     chapters_dir = os.path.join(filepath, "chapters")
     chapter_file = os.path.join(chapters_dir, f"chapter_{novel_number}.txt")
     chapter_text = read_file(chapter_file).strip()
@@ -716,7 +897,7 @@ def finalize_chapter(
 
     # 如果内容过短，则尝试扩写
     if len(chapter_text) < 0.7 * word_number:
-        chapter_text = enrich_chapter_text(chapter_text, word_number, api_key, base_url, model_name, temperature, interface_format, max_tokens)
+        chapter_text = enrich_chapter_text(chapter_text, word_number, api_key, base_url, model_name, temperature, interface_format, max_tokens, timeout)
         clear_file_content(chapter_file)
         save_string_to_txt(chapter_text, chapter_file)
 
@@ -731,7 +912,8 @@ def finalize_chapter(
         model_name=model_name,
         api_key=api_key,
         temperature=temperature,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        timeout=timeout
     )
     prompt_summary = summary_prompt.format(
         chapter_text=chapter_text,
@@ -755,7 +937,7 @@ def finalize_chapter(
     clear_file_content(character_state_file)
     save_string_to_txt(new_char_state, character_state_file)
 
-    # 更新向量库
+    # 更新向量库（若失败则跳过）
     embedding_adapter = create_embedding_adapter(
         embedding_interface_format,
         embedding_api_key,
@@ -766,6 +948,11 @@ def finalize_chapter(
 
     logging.info(f"Chapter {novel_number} has been finalized.")
 
+    # 更新进度
+    progress["chapters_finalized"].append(novel_number)
+    save_progress(progress)
+
+
 def enrich_chapter_text(
     chapter_text: str,
     word_number: int,
@@ -774,7 +961,8 @@ def enrich_chapter_text(
     model_name: str,
     temperature: float,
     interface_format: str,
-    max_tokens: int
+    max_tokens: int,
+    timeout: int=600
 ) -> str:
     llm_adapter = create_llm_adapter(
         interface_format=interface_format,
@@ -782,7 +970,8 @@ def enrich_chapter_text(
         model_name=model_name,
         api_key=api_key,
         temperature=temperature,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        timeout=timeout
     )
     prompt = f"""以下章节文本较短，请在保持剧情连贯的前提下进行扩写，使其更充实，接近 {word_number} 字左右：
 原内容：
@@ -861,9 +1050,17 @@ def import_knowledge_file(
 
     store = load_vector_store(embedding_adapter, filepath)
     if not store:
-        logging.info("Vector store does not exist. Initializing a new one for knowledge import...")
-        init_vector_store(embedding_adapter, paragraphs, filepath)
+        logging.info("Vector store does not exist or load failed. Initializing a new one for knowledge import...")
+        store = init_vector_store(embedding_adapter, paragraphs, filepath)
+        if store:
+            logging.info("知识库文件已成功导入至向量库(新初始化)。")
+        else:
+            logging.warning("知识库导入失败，跳过。")
     else:
-        docs = [Document(page_content=str(p)) for p in paragraphs]
-        store.add_documents(docs)
-    logging.info("知识库文件已成功导入至向量库。")
+        try:
+            docs = [Document(page_content=str(p)) for p in paragraphs]
+            store.add_documents(docs)
+            logging.info("知识库文件已成功导入至向量库(追加模式)。")
+        except Exception as e:
+            logging.warning(f"知识库导入失败: {e}")
+            traceback.print_exc()
