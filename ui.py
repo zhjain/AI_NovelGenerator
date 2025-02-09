@@ -1083,6 +1083,9 @@ class NovelGeneratorGUI:
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
+                interface_format = self.interface_format_var.get()
+                max_tokens = self.max_tokens_var.get()
+                timeout = self.timeout_var.get()
 
                 chap_num = self.safe_get_int(self.chapter_num_var, 1)
                 chap_file = os.path.join(filepath, "chapters", f"chapter_{chap_num}.txt")
@@ -1102,6 +1105,9 @@ class NovelGeneratorGUI:
                     base_url=base_url,
                     model_name=model_name,
                     temperature=temperature,
+                    interface_format=interface_format,
+                    max_tokens=max_tokens,
+                    timeout=timeout,
                     plot_arcs=""
                 )
                 self.safe_log("审校结果：")
