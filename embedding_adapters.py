@@ -4,7 +4,7 @@ import logging
 import requests
 import traceback
 from typing import List
-from langchain_openai import OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings, AzureOpenAIEmbeddings
 
 def ensure_openai_base_url_has_v1(url: str) -> str:
     """
@@ -38,6 +38,33 @@ class OpenAIEmbeddingAdapter(BaseEmbeddingAdapter):
             openai_api_key=api_key,
             openai_api_base=ensure_openai_base_url_has_v1(base_url),
             model=model_name
+        )
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return self._embedding.embed_documents(texts)
+
+    def embed_query(self, query: str) -> List[float]:
+        return self._embedding.embed_query(query)
+    
+class AzureOpenAIEmbeddingAdapter(BaseEmbeddingAdapter):
+    """
+    基于 AzureOpenAIEmbeddings（或兼容接口）的适配器
+    """
+    def __init__(self, api_key: str, base_url: str, model_name: str):
+        import re
+        match = re.match(r'https://(.+?)/openai/deployments/(.+?)/embeddings\?api-version=(.+)', base_url)
+        if match:
+            self.azure_endpoint = f"https://{match.group(1)}"
+            self.azure_deployment = match.group(2)
+            self.api_version = match.group(3)
+        else:
+            raise ValueError("Invalid Azure OpenAI base_url format")
+        
+        self._embedding = AzureOpenAIEmbeddings(
+            azure_endpoint=self.azure_endpoint,
+            azure_deployment=self.azure_deployment,
+            openai_api_key=api_key,
+            api_version=self.api_version,
         )
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
@@ -112,6 +139,8 @@ def create_embedding_adapter(
     """
     if interface_format.lower() == "openai":
         return OpenAIEmbeddingAdapter(api_key, base_url, model_name)
+    elif interface_format.lower() == "azure openai":
+        return AzureOpenAIEmbeddingAdapter(api_key, base_url, model_name)
     elif interface_format.lower() == "ollama":
         return OllamaEmbeddingAdapter(model_name, base_url)
     elif interface_format.lower() == "ml studio":
