@@ -3,6 +3,8 @@
 import logging
 from typing import Optional
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
+from google import genai
+from google.genai import types
 
 def ensure_openai_base_url_has_v1(url: str) -> str:
     import re
@@ -76,6 +78,38 @@ class OpenAIAdapter(BaseLLMAdapter):
             logging.warning("No response from OpenAIAdapter.")
             return ""
         return response.content
+
+class GeminiAdapter(BaseLLMAdapter):
+    """
+    适配 Google Gemini 接口
+    """
+    def __init__(self, api_key: str, model_name: str, max_tokens: int, temperature: float = 0.7, timeout: Optional[int] = 600):
+        self.api_key = api_key
+        self.model_name = model_name
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.timeout = timeout
+
+        self._client = genai.Client(api_key=self.api_key)
+
+    def invoke(self, prompt: str) -> str:
+        try:
+            response = self._client.models.generate_content(
+                model = self.model_name,
+                contents = prompt,
+                config = types.GenerateContentConfig(
+                    max_output_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                )
+            )
+            if response and response.text:
+                return response.text
+            else:
+                logging.warning("No text response from Gemini API.")
+                return ""
+        except Exception as e:
+            logging.error(f"Gemini API 调用失败: {e}")
+            return ""
 
 class AzureOpenAIAdapter(BaseLLMAdapter):
     """
@@ -190,5 +224,7 @@ def create_llm_adapter(
         return OllamaAdapter(api_key, base_url, model_name, max_tokens, temperature, timeout)
     elif interface_format.lower() == "ml studio":
         return MLStudioAdapter(api_key, base_url, model_name, max_tokens, temperature, timeout)
+    elif interface_format.lower() == "gemini":
+        return GeminiAdapter(api_key, model_name, max_tokens, temperature, timeout)
     else:
         raise ValueError(f"Unknown interface_format: {interface_format}")
