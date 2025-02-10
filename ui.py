@@ -9,7 +9,7 @@ from tkinter import filedialog, messagebox
 import tkinter as tk
 import traceback
 
-from config_manager import load_config, save_config
+from config_manager import load_config, save_config, test_llm_config, test_embedding_config
 from utils import read_file, save_string_to_txt, clear_file_content
 
 from novel_generator import (
@@ -525,6 +525,15 @@ class NovelGeneratorGUI:
         )
         self.timeout_value_label.grid(row=6, column=2, padx=5, pady=5, sticky="w")
 
+        # 添加测试按钮
+        test_btn = ctk.CTkButton(
+            self.ai_config_tab,
+            text="测试配置",
+            command=self.test_llm_config,
+            font=("Microsoft YaHei", 12)
+        )
+        test_btn.grid(row=7, column=0, columnspan=3, padx=5, pady=5, sticky="ew")
+
     # --------------- Embedding 模型配置 ---------------
     def build_embeddings_config_tab(self):
         def on_embedding_interface_changed(new_value):
@@ -614,6 +623,15 @@ class NovelGeneratorGUI:
         )
         emb_retrieval_k_entry = ctk.CTkEntry(self.embeddings_config_tab, textvariable=self.embedding_retrieval_k_var, font=("Microsoft YaHei", 12))
         emb_retrieval_k_entry.grid(row=4, column=1, padx=5, pady=5, sticky="nsew")
+
+        # 添加测试按钮
+        test_btn = ctk.CTkButton(
+            self.embeddings_config_tab,
+            text="测试配置",
+            command=self.test_embedding_config,
+            font=("Microsoft YaHei", 12)
+        )
+        test_btn.grid(row=5, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
     # ----------------- 小说参数区 -----------------
     def build_novel_params_area(self, start_row=1):
@@ -1657,6 +1675,48 @@ class NovelGeneratorGUI:
             self.load_chapter_content(self.chapters_list[new_idx])
         else:
             messagebox.showinfo("提示", "已经是最后一章了。")
+
+    def test_llm_config(self):
+        """
+        测试当前的LLM配置是否可用
+        """
+        interface_format = self.interface_format_var.get().strip()
+        api_key = self.api_key_var.get().strip()
+        base_url = self.base_url_var.get().strip()
+        model_name = self.model_name_var.get().strip()
+        temperature = self.temperature_var.get()
+        max_tokens = self.max_tokens_var.get()
+        timeout = self.timeout_var.get()
+
+        test_llm_config(
+            interface_format=interface_format,
+            api_key=api_key,
+            base_url=base_url,
+            model_name=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            log_func=self.safe_log,
+            handle_exception_func=self.handle_exception
+        )
+
+    def test_embedding_config(self):
+        """
+        测试当前的Embedding配置是否可用
+        """
+        api_key = self.embedding_api_key_var.get().strip()
+        base_url = self.embedding_url_var.get().strip()
+        interface_format = self.embedding_interface_format_var.get().strip()
+        model_name = self.embedding_model_name_var.get().strip()
+
+        test_embedding_config(
+            api_key=api_key,
+            base_url=base_url,
+            interface_format=interface_format,
+            model_name=model_name,
+            log_func=self.safe_log,
+            handle_exception_func=self.handle_exception
+        )
 
 
 # ----------------- 程序入口 -----------------
