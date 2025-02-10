@@ -290,6 +290,8 @@ class NovelGeneratorGUI:
                 self.base_url_var.set("http://localhost:1234/v1")
             elif new_value == "OpenAI":
                 self.base_url_var.set("https://api.openai.com/v1")
+            elif new_value == "Azure OpenAI":
+                self.base_url_var.set("https://[az].openai.azure.com/openai/deployments/[model]/chat/completions?api-version=2024-08-01-preview")
             elif new_value == "DeepSeek":
                 self.base_url_var.set("https://api.deepseek.com/v1")
 
@@ -332,7 +334,7 @@ class NovelGeneratorGUI:
             column=0,
             font=("Microsoft YaHei", 12)
         )
-        interface_options = ["DeepSeek", "OpenAI", "Ollama", "ML Studio"]
+        interface_options = ["DeepSeek", "OpenAI", "Azure OpenAI", "Ollama", "ML Studio"]
         interface_dropdown = ctk.CTkOptionMenu(
             self.ai_config_tab,
             values=interface_options,
@@ -452,6 +454,8 @@ class NovelGeneratorGUI:
                 self.embedding_url_var.set("http://localhost:1234/v1")
             elif new_value == "OpenAI":
                 self.embedding_url_var.set("https://api.openai.com/v1")
+            elif new_value == "Azure OpenAI":
+                self.embedding_url_var.set("https://[az].openai.azure.com/openai/deployments/[model]/embeddings?api-version=2023-05-15")
             elif new_value == "DeepSeek":
                 self.embedding_url_var.set("https://api.deepseek.com/v1")
 
@@ -482,7 +486,7 @@ class NovelGeneratorGUI:
             column=0,
             font=("Microsoft YaHei", 12)
         )
-        emb_interface_options = ["DeepSeek", "OpenAI", "Ollama", "ML Studio"]
+        emb_interface_options = ["DeepSeek", "OpenAI", "Azure OpenAI", "Ollama", "ML Studio"]
         emb_interface_dropdown = ctk.CTkOptionMenu(
             self.embeddings_config_tab,
             values=emb_interface_options,
@@ -1079,6 +1083,9 @@ class NovelGeneratorGUI:
                 base_url = self.base_url_var.get().strip()
                 model_name = self.model_name_var.get().strip()
                 temperature = self.temperature_var.get()
+                interface_format = self.interface_format_var.get()
+                max_tokens = self.max_tokens_var.get()
+                timeout = self.timeout_var.get()
 
                 chap_num = self.safe_get_int(self.chapter_num_var, 1)
                 chap_file = os.path.join(filepath, "chapters", f"chapter_{chap_num}.txt")
@@ -1098,6 +1105,9 @@ class NovelGeneratorGUI:
                     base_url=base_url,
                     model_name=model_name,
                     temperature=temperature,
+                    interface_format=interface_format,
+                    max_tokens=max_tokens,
+                    timeout=timeout,
                     plot_arcs=""
                 )
                 self.safe_log("审校结果：")
