@@ -45,7 +45,7 @@ class OpenAIEmbeddingAdapter(BaseEmbeddingAdapter):
 
     def embed_query(self, query: str) -> List[float]:
         return self._embedding.embed_query(query)
-    
+
 class AzureOpenAIEmbeddingAdapter(BaseEmbeddingAdapter):
     """
     基于 AzureOpenAIEmbeddings（或兼容接口）的适配器
@@ -133,6 +133,38 @@ class MLStudioEmbeddingAdapter(BaseEmbeddingAdapter):
     def embed_query(self, query: str) -> List[float]:
         return self._embedding.embed_query(query)
 
+class GeminiEmbeddingAdapter(BaseEmbeddingAdapter):
+    """
+    基于 Google Generative AI （Gemini）接口的 Embedding 适配器
+    """
+    def __init__(self, api_key: str, model_name: str):
+        from google import genai
+        # 全局配置，也可根据需要改成 Client(...) 初始化方式
+        genai.configure(api_key=api_key)
+        self.model_name = model_name
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        from google import genai
+        embeddings = []
+        for text in texts:
+            try:
+                result = genai.embed_content(model=self.model_name, content=text)
+                # 返回结构中包含 'embedding' 字段
+                embeddings.append(result.get('embedding', []))
+            except Exception as e:
+                logging.error(f"Gemini embed_content error: {e}")
+                embeddings.append([])
+        return embeddings
+
+    def embed_query(self, query: str) -> List[float]:
+        from google import genai
+        try:
+            result = genai.embed_content(model=self.model_name, content=query)
+            return result.get('embedding', [])
+        except Exception as e:
+            logging.error(f"Gemini embed_content error: {e}")
+            return []
+
 def create_embedding_adapter(
     interface_format: str,
     api_key: str,
@@ -142,13 +174,17 @@ def create_embedding_adapter(
     """
     工厂函数：根据 interface_format 返回不同的 embedding 适配器实例
     """
-    if interface_format.lower() == "openai":
+    fmt = interface_format.strip().lower()
+    if fmt == "openai":
         return OpenAIEmbeddingAdapter(api_key, base_url, model_name)
-    elif interface_format.lower() == "azure openai":
+    elif fmt == "azure openai":
         return AzureOpenAIEmbeddingAdapter(api_key, base_url, model_name)
-    elif interface_format.lower() == "ollama":
+    elif fmt == "ollama":
         return OllamaEmbeddingAdapter(model_name, base_url)
-    elif interface_format.lower() == "ml studio":
+    elif fmt == "ml studio":
         return MLStudioEmbeddingAdapter(api_key, base_url, model_name)
+    elif fmt == "gemini":
+        # base_url 对 Gemini 暂无用处，可忽略
+        return GeminiEmbeddingAdapter(api_key, model_name)
     else:
         raise ValueError(f"Unknown embedding interface_format: {interface_format}")
