@@ -548,10 +548,14 @@ class NovelGeneratorGUI:
                 self.embedding_url_var.set("http://localhost:1234/v1")
             elif new_value == "OpenAI":
                 self.embedding_url_var.set("https://api.openai.com/v1")
+                self.embedding_model_name_var.set("text-embedding-ada-002")
             elif new_value == "Azure OpenAI":
                 self.embedding_url_var.set("https://[az].openai.azure.com/openai/deployments/[model]/embeddings?api-version=2023-05-15")
             elif new_value == "DeepSeek":
                 self.embedding_url_var.set("https://api.deepseek.com/v1")
+            elif new_value == "Gemini":
+                self.embedding_url_var.set("https://generativelanguage.googleapis.com/v1beta/")
+                self.embedding_model_name_var.set("models/text-embedding-004")
 
         for i in range(5):
             self.embeddings_config_tab.grid_rowconfigure(i, weight=0)
@@ -580,7 +584,7 @@ class NovelGeneratorGUI:
             column=0,
             font=("Microsoft YaHei", 12)
         )
-        emb_interface_options = ["DeepSeek", "OpenAI", "Azure OpenAI", "Ollama", "ML Studio"]
+        emb_interface_options = ["DeepSeek", "OpenAI", "Azure OpenAI", "Gemini", "Ollama", "ML Studio"]
         emb_interface_dropdown = ctk.CTkOptionMenu(
             self.embeddings_config_tab,
             values=emb_interface_options,

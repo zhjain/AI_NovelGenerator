@@ -135,34 +135,56 @@ class MLStudioEmbeddingAdapter(BaseEmbeddingAdapter):
 
 class GeminiEmbeddingAdapter(BaseEmbeddingAdapter):
     """
-    基于 Google Generative AI （Gemini）接口的 Embedding 适配器
+    基于 Google Generative AI (Gemini) 接口的 Embedding 适配器
+    使用直接 POST 请求方式，URL 示例：
+    https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=YOUR_API_KEY
     """
-    def __init__(self, api_key: str, model_name: str):
-        from google import genai
-        # 全局配置，也可根据需要改成 Client(...) 初始化方式
-        genai.configure(api_key=api_key)
+    def __init__(self, api_key: str, model_name: str, base_url: str):
+        """
+        :param api_key: 传入的 Google API Key
+        :param model_name: 这里一般是 "text-embedding-004"
+        :param base_url: e.g. https://generativelanguage.googleapis.com/v1beta/models
+        """
+        self.api_key = api_key
         self.model_name = model_name
+        self.base_url = base_url.rstrip("/")
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        from google import genai
         embeddings = []
         for text in texts:
-            try:
-                result = genai.embed_content(model=self.model_name, content=text)
-                # 返回结构中包含 'embedding' 字段
-                embeddings.append(result.get('embedding', []))
-            except Exception as e:
-                logging.error(f"Gemini embed_content error: {e}")
-                embeddings.append([])
+            vec = self._embed_single(text)
+            embeddings.append(vec)
         return embeddings
 
     def embed_query(self, query: str) -> List[float]:
-        from google import genai
+        return self._embed_single(query)
+
+    def _embed_single(self, text: str) -> List[float]:
+        """
+        直接调用 Google Generative Language API (Gemini) 接口，获取文本 embedding
+        """
+        url = f"{self.base_url}/{self.model_name}:embedContent?key={self.api_key}"
+        payload = {
+            "model": self.model_name,
+            "content": {
+                "parts": [
+                    {"text": text}
+                ]
+            }
+        }
+
         try:
-            result = genai.embed_content(model=self.model_name, content=query)
-            return result.get('embedding', [])
+            response = requests.post(url, json=payload)
+            print(response.text)
+            response.raise_for_status()
+            result = response.json()
+            embedding_data = result.get("embedding", {})
+            return embedding_data.get("values", [])
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Gemini embed_content request error: {e}\n{traceback.format_exc()}")
+            return []
         except Exception as e:
-            logging.error(f"Gemini embed_content error: {e}")
+            logging.error(f"Gemini embed_content parse error: {e}\n{traceback.format_exc()}")
             return []
 
 def create_embedding_adapter(
@@ -184,7 +206,6 @@ def create_embedding_adapter(
     elif fmt == "ml studio":
         return MLStudioEmbeddingAdapter(api_key, base_url, model_name)
     elif fmt == "gemini":
-        # base_url 对 Gemini 暂无用处，可忽略
-        return GeminiEmbeddingAdapter(api_key, model_name)
+        return GeminiEmbeddingAdapter(api_key, model_name, base_url)
     else:
         raise ValueError(f"Unknown embedding interface_format: {interface_format}")
