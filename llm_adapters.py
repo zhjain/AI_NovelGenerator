@@ -5,6 +5,9 @@ from typing import Optional
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from google import genai
 from google.genai import types
+from azure.ai.inference import ChatCompletionsClient
+from azure.core.credentials import AzureKeyCredential
+from azure.ai.inference.models import SystemMessage, UserMessage
 
 def ensure_openai_base_url_has_v1(url: str) -> str:
     import re
@@ -201,6 +204,56 @@ class MLStudioAdapter(BaseLLMAdapter):
             return ""
         return response.content
 
+class AzureAIAdapter(BaseLLMAdapter):
+    """
+    适配 Azure AI Inference 接口，用于访问Azure AI服务部署的模型
+    使用 azure-ai-inference 库进行API调用
+    """
+    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7, timeout: Optional[int] = 600):
+        import re
+        # 匹配形如 https://xxx.services.ai.azure.com/models/chat/completions?api-version=xxx 的URL
+        match = re.match(r'https://(.+?)\.services\.ai\.azure\.com(?:/models)?(?:/chat/completions)?(?:\?api-version=(.+))?', base_url)
+        if match:
+            # endpoint需要是形如 https://xxx.services.ai.azure.com/models 的格式
+            self.endpoint = f"https://{match.group(1)}.services.ai.azure.com/models"
+            # 如果URL中包含api-version参数，使用它；否则使用默认值
+            self.api_version = match.group(2) if match.group(2) else "2024-05-01-preview"
+        else:
+            raise ValueError("Invalid Azure AI base_url format. Expected format: https://<endpoint>.services.ai.azure.com/models/chat/completions?api-version=xxx")
+        
+        self.base_url = self.endpoint  # 存储处理后的endpoint URL
+        self.api_key = api_key
+        self.model_name = model_name
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.timeout = timeout
+
+        self._client = ChatCompletionsClient(
+            endpoint=self.endpoint,
+            credential=AzureKeyCredential(self.api_key),
+            model=self.model_name,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            timeout=self.timeout
+        )
+
+    def invoke(self, prompt: str) -> str:
+        try:
+            response = self._client.complete(
+                messages=[
+                    SystemMessage("You are a helpful assistant."),
+                    UserMessage(prompt)
+                ]
+            )
+            if response and response.choices:
+                return response.choices[0].message.content
+            else:
+                logging.warning("No response from AzureAIAdapter.")
+                return ""
+        except Exception as e:
+            logging.error(f"Azure AI Inference API 调用失败: {e}")
+            return ""
+
 def create_llm_adapter(
     interface_format: str,
     base_url: str,
@@ -220,6 +273,8 @@ def create_llm_adapter(
         return OpenAIAdapter(api_key, base_url, model_name, max_tokens, temperature, timeout)
     elif fmt == "azure openai":
         return AzureOpenAIAdapter(api_key, base_url, model_name, max_tokens, temperature, timeout)
+    elif fmt == "azure ai":
+        return AzureAIAdapter(api_key, base_url, model_name, max_tokens, temperature, timeout)
     elif fmt == "ollama":
         return OllamaAdapter(api_key, base_url, model_name, max_tokens, temperature, timeout)
     elif fmt == "ml studio":
