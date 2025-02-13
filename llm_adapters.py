@@ -6,7 +6,7 @@ from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from google import genai
 from google.genai import types
 
-def ensure_openai_base_url_has_v1(url: str) -> str:
+def check_base_url(url: str) -> str:
     """
     处理base_url的规则：
     1. 如果url以#结尾，则移除#并直接使用用户提供的url
@@ -37,7 +37,7 @@ class DeepSeekAdapter(BaseLLMAdapter):
     适配官方/OpenAI兼容接口（使用 langchain.ChatOpenAI）
     """
     def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7, timeout: Optional[int] = 600):
-        self.base_url = ensure_openai_base_url_has_v1(base_url)
+        self.base_url = check_base_url(base_url)
         self.api_key = api_key
         self.model_name = model_name
         self.max_tokens = max_tokens
@@ -65,7 +65,7 @@ class OpenAIAdapter(BaseLLMAdapter):
     适配官方/OpenAI兼容接口（使用 langchain.ChatOpenAI）
     """
     def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7, timeout: Optional[int] = 600):
-        self.base_url = ensure_openai_base_url_has_v1(base_url)
+        self.base_url = check_base_url(base_url)
         self.api_key = api_key
         self.model_name = model_name
         self.max_tokens = max_tokens
@@ -162,7 +162,7 @@ class OllamaAdapter(BaseLLMAdapter):
     Ollama 同样有一个 OpenAI-like /v1/chat 接口，可直接使用 ChatOpenAI。
     """
     def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7, timeout: Optional[int] = 600):
-        self.base_url = ensure_openai_base_url_has_v1(base_url)
+        self.base_url = check_base_url(base_url)
         self.api_key = api_key
         self.model_name = model_name
         self.max_tokens = max_tokens
@@ -187,7 +187,7 @@ class OllamaAdapter(BaseLLMAdapter):
 
 class MLStudioAdapter(BaseLLMAdapter):
     def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7, timeout: Optional[int] = 600):
-        self.base_url = ensure_openai_base_url_has_v1(base_url)
+        self.base_url = check_base_url(base_url)
         self.api_key = api_key
         self.model_name = model_name
         self.max_tokens = max_tokens
