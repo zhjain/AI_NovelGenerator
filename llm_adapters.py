@@ -7,10 +7,19 @@ from google import genai
 from google.genai import types
 
 def ensure_openai_base_url_has_v1(url: str) -> str:
+    """
+    处理base_url的规则：
+    1. 如果url以#结尾，则移除#并直接使用用户提供的url
+    2. 否则检查是否需要添加/v1后缀
+    """
     import re
     url = url.strip()
     if not url:
         return url
+        
+    if url.endswith('#'):
+        return url.rstrip('#')
+        
     if not re.search(r'/v\d+$', url):
         if '/v1' not in url:
             url = url.rstrip('/') + '/v1'
