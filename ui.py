@@ -205,7 +205,7 @@ class NovelGeneratorGUI:
     # ----------------- 主Tab布局 -----------------
     def build_main_tab(self):
         """
-        主Tab包含左侧的“本章内容”编辑框和输出日志，以及右侧的主要操作和参数设置区
+        主Tab包含左侧的"本章内容"编辑框和输出日志，以及右侧的主要操作和参数设置区
         """
         self.main_tab.rowconfigure(0, weight=1)
         self.main_tab.columnconfigure(0, weight=1)
@@ -321,7 +321,7 @@ class NovelGeneratorGUI:
         self.build_ai_config_tab()
         self.build_embeddings_config_tab()
 
-        # 底部的“保存配置”和“加载配置”按钮
+        # 底部的"保存配置"和"加载配置"按钮
         self.btn_frame_config = ctk.CTkFrame(self.config_frame)
         self.btn_frame_config.grid(row=1, column=0, padx=5, pady=5, sticky="ew")
         self.btn_frame_config.columnconfigure(0, weight=1)
@@ -336,7 +336,7 @@ class NovelGeneratorGUI:
     def create_label_with_help(self, parent, label_text, tooltip_key, row, column,
                                font=None, sticky="e", padx=5, pady=5):
         """
-        封装一个带“?”按钮的Label，用于展示提示信息。
+        封装一个带"?"按钮的Label，用于展示提示信息。
         """
         frame = ctk.CTkFrame(parent)
         frame.grid(row=row, column=column, padx=padx, pady=pady, sticky=sticky)
@@ -375,6 +375,8 @@ class NovelGeneratorGUI:
                 self.base_url_var.set("https://api.deepseek.com/v1")
             elif new_value == "Gemini":
                 self.base_url_var.set("")  # Gemini 通常不需要 Base URL，可以设置为空
+            elif new_value == "Azure AI":
+                self.base_url_var.set("https://<your-endpoint>.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview")
 
         for i in range(7):
             self.ai_config_tab.grid_rowconfigure(i, weight=0)
@@ -415,7 +417,7 @@ class NovelGeneratorGUI:
             column=0,
             font=("Microsoft YaHei", 12)
         )
-        interface_options = ["DeepSeek", "OpenAI", "Azure OpenAI", "Ollama", "ML Studio", "Gemini"]
+        interface_options = ["DeepSeek", "OpenAI", "Azure OpenAI", "Azure AI", "Ollama", "ML Studio", "Gemini"]
         interface_dropdown = ctk.CTkOptionMenu(
             self.ai_config_tab,
             values=interface_options,
