@@ -6,6 +6,7 @@
 import os
 import logging
 from llm_adapters import create_llm_adapter
+from embedding_adapters import create_embedding_adapter
 from prompt_definitions import summary_prompt, update_character_state_prompt
 from novel_generator.common import invoke_with_cleaning
 from utils import read_file, clear_file_content, save_string_to_txt
@@ -75,14 +76,11 @@ def finalize_chapter(
     save_string_to_txt(new_char_state, character_state_file)
 
     update_vector_store(
-        embedding_adapter=create_llm_adapter(
-            interface_format=embedding_interface_format,
-            base_url=embedding_url,
-            model_name=embedding_model_name,
-            api_key=embedding_api_key,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=timeout
+        embedding_adapter=create_embedding_adapter(
+            embedding_interface_format,
+            embedding_api_key,
+            embedding_url,
+            embedding_model_name
         ),
         new_chapter=chapter_text,
         filepath=filepath

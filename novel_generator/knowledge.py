@@ -68,7 +68,7 @@ def import_knowledge_file(
         logging.warning("知识库文件内容为空。")
         return
     paragraphs = advanced_split_content(content)
-    from llm_adapters import create_embedding_adapter
+    from embedding_adapters import create_embedding_adapter
     embedding_adapter = create_embedding_adapter(
         embedding_interface_format,
         embedding_api_key,

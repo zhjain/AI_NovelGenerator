@@ -1,4 +1,4 @@
-#novel_generator/chapter.py
+# novel_generator/chapter.py
 # -*- coding: utf-8 -*-
 """
 章节草稿生成及获取历史章节文本、短期摘要等
@@ -68,7 +68,7 @@ def summarize_recent_chapters(
         short_summary = response_text
     return (short_summary, next_chapter_keywords)
 
-def generate_chapter_draft(
+def build_chapter_prompt(
     api_key: str,
     base_url: str,
     model_name: str,
@@ -91,10 +91,7 @@ def generate_chapter_draft(
     timeout: int = 600
 ) -> str:
     """
-    根据 novel_number 判断是否为第一章。
-    - 若是第一章，则使用 first_chapter_draft_prompt
-    - 否则使用 next_chapter_draft_prompt
-    最终将生成文本存入 chapters/chapter_{novel_number}.txt。
+    构造当前章节的请求提示词，不调用 LLM，仅返回构造好的提示词字符串。
     """
     arch_file = os.path.join(filepath, "Novel_architecture.txt")
     novel_architecture_text = read_file(arch_file)
@@ -155,15 +152,12 @@ def generate_chapter_draft(
                 else:
                     previous_chapter_excerpt = text_block
                 break
-        from llm_adapters import create_llm_adapter  # 避免循环依赖
-        embedding_adapter = create_llm_adapter(
-            interface_format=embedding_interface_format,
-            base_url=embedding_url,
-            model_name=embedding_model_name,
-            api_key=embedding_api_key,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=timeout
+        from embedding_adapters import create_embedding_adapter  # 避免循环依赖
+        embedding_adapter = create_embedding_adapter(
+            embedding_interface_format,
+            embedding_api_key,
+            embedding_url,
+            embedding_model_name
         )
         retrieval_query = short_summary + " " + next_chapter_keywords
         relevant_context = get_relevant_context_from_vector_store(
@@ -195,6 +189,67 @@ def generate_chapter_draft(
             context_excerpt=relevant_context,
             previous_chapter_excerpt=previous_chapter_excerpt
         )
+    return prompt_text
+
+def generate_chapter_draft(
+    api_key: str,
+    base_url: str,
+    model_name: str,
+    filepath: str,
+    novel_number: int,
+    word_number: int,
+    temperature: float,
+    user_guidance: str,
+    characters_involved: str,
+    key_items: str,
+    scene_location: str,
+    time_constraint: str,
+    embedding_api_key: str,
+    embedding_url: str,
+    embedding_interface_format: str,
+    embedding_model_name: str,
+    embedding_retrieval_k: int = 2,
+    interface_format: str = "openai",
+    max_tokens: int = 2048,
+    timeout: int = 600,
+    custom_prompt_text: str = None  # 新增参数，若不为 None，则使用用户编辑后的提示词
+) -> str:
+    """
+    根据 novel_number 判断是否为第一章。
+    - 若是第一章，则使用 first_chapter_draft_prompt
+    - 否则使用 next_chapter_draft_prompt
+    若 custom_prompt_text 提供，则以此作为提示词进行生成。
+    最终将生成文本存入 chapters/chapter_{novel_number}.txt。
+    """
+    # 构造提示词：若用户提供了编辑后的提示词，则使用之；否则构造默认提示词
+    if custom_prompt_text is None:
+        prompt_text = build_chapter_prompt(
+            api_key=api_key,
+            base_url=base_url,
+            model_name=model_name,
+            filepath=filepath,
+            novel_number=novel_number,
+            word_number=word_number,
+            temperature=temperature,
+            user_guidance=user_guidance,
+            characters_involved=characters_involved,
+            key_items=key_items,
+            scene_location=scene_location,
+            time_constraint=time_constraint,
+            embedding_api_key=embedding_api_key,
+            embedding_url=embedding_url,
+            embedding_interface_format=embedding_interface_format,
+            embedding_model_name=embedding_model_name,
+            embedding_retrieval_k=embedding_retrieval_k,
+            interface_format=interface_format,
+            max_tokens=max_tokens,
+            timeout=timeout
+        )
+    else:
+        prompt_text = custom_prompt_text
+
+    chapters_dir = os.path.join(filepath, "chapters")
+    os.makedirs(chapters_dir, exist_ok=True)
 
     llm_adapter = create_llm_adapter(
         interface_format=interface_format,

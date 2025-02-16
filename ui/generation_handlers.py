@@ -131,8 +131,11 @@ def generate_chapter_draft_ui(self):
             embedding_model_name = self.embedding_model_name_var.get().strip()
             embedding_k = self.safe_get_int(self.embedding_retrieval_k_var, 4)
 
-            self.safe_log(f"开始生成第{chap_num}章草稿...")
-            draft_text = generate_chapter_draft(
+            self.safe_log(f"生成第{chap_num}章草稿：准备生成请求提示词...")
+
+            # 调用新添加的 build_chapter_prompt 函数构造初始提示词
+            from novel_generator.chapter import build_chapter_prompt
+            prompt_text = build_chapter_prompt(
                 api_key=api_key,
                 base_url=base_url,
                 model_name=model_name,
@@ -153,6 +156,67 @@ def generate_chapter_draft_ui(self):
                 interface_format=interface_format,
                 max_tokens=max_tokens,
                 timeout=timeout_val
+            )
+
+            # 弹出可编辑提示词对话框，等待用户确认或取消
+            result = {"prompt": None}
+            event = threading.Event()
+
+            def create_dialog():
+                dialog = ctk.CTkToplevel(self.master)
+                dialog.title("当前章节请求提示词（可编辑）")
+                dialog.geometry("600x400")
+                text_box = ctk.CTkTextbox(dialog, wrap="word", font=("Microsoft YaHei", 12))
+                text_box.pack(fill="both", expand=True, padx=10, pady=10)
+                text_box.insert("0.0", prompt_text)
+                button_frame = ctk.CTkFrame(dialog)
+                button_frame.pack(pady=10)
+                def on_confirm():
+                    result["prompt"] = text_box.get("1.0", "end").strip()
+                    dialog.destroy()
+                    event.set()
+                def on_cancel():
+                    result["prompt"] = None
+                    dialog.destroy()
+                    event.set()
+                btn_confirm = ctk.CTkButton(button_frame, text="确认使用", font=("Microsoft YaHei", 12), command=on_confirm)
+                btn_confirm.pack(side="left", padx=10)
+                btn_cancel = ctk.CTkButton(button_frame, text="取消请求", font=("Microsoft YaHei", 12), command=on_cancel)
+                btn_cancel.pack(side="left", padx=10)
+                # 若用户直接关闭弹窗，则调用 on_cancel 处理
+                dialog.protocol("WM_DELETE_WINDOW", on_cancel)
+                dialog.grab_set()
+            self.master.after(0, create_dialog)
+            event.wait()  # 等待用户操作完成
+            edited_prompt = result["prompt"]
+            if edited_prompt is None:
+                self.safe_log("❌ 用户取消了草稿生成请求。")
+                return
+
+            self.safe_log("开始生成章节草稿...")
+            from novel_generator.chapter import generate_chapter_draft
+            draft_text = generate_chapter_draft(
+                api_key=api_key,
+                base_url=base_url,
+                model_name=model_name,
+                filepath=filepath,
+                novel_number=chap_num,
+                word_number=word_number,
+                temperature=temperature,
+                user_guidance=user_guidance,
+                characters_involved=char_inv,
+                key_items=key_items,
+                scene_location=scene_loc,
+                time_constraint=time_constr,
+                embedding_api_key=embedding_api_key,
+                embedding_url=embedding_url,
+                embedding_interface_format=embedding_interface_format,
+                embedding_model_name=embedding_model_name,
+                embedding_retrieval_k=embedding_k,
+                interface_format=interface_format,
+                max_tokens=max_tokens,
+                timeout=timeout_val,
+                custom_prompt_text=edited_prompt  # 使用用户编辑后的提示词
             )
             if draft_text:
                 self.safe_log(f"✅ 第{chap_num}章草稿生成完成。请在左侧查看或编辑。")
