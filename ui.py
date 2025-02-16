@@ -108,39 +108,79 @@ class NovelGeneratorGUI:
         self.config_file = "config.json"
         self.loaded_config = load_config(self.config_file)
 
+        # 根据配置加载上一次使用的接口类型及对应配置
+        if self.loaded_config:
+            last_llm = self.loaded_config.get("last_interface_format", "OpenAI")
+            last_embedding = self.loaded_config.get("last_embedding_interface_format", "OpenAI")
+        else:
+            last_llm = "OpenAI"
+            last_embedding = "OpenAI"
+
+        if self.loaded_config and "llm_configs" in self.loaded_config and last_llm in self.loaded_config["llm_configs"]:
+            llm_conf = self.loaded_config["llm_configs"][last_llm]
+        else:
+            llm_conf = {
+                "api_key": "",
+                "base_url": "https://api.openai.com/v1",
+                "model_name": "gpt-4o-mini",
+                "temperature": 0.7,
+                "max_tokens": 8192,
+                "timeout": 600
+            }
+
+        if self.loaded_config and "embedding_configs" in self.loaded_config and last_embedding in self.loaded_config["embedding_configs"]:
+            emb_conf = self.loaded_config["embedding_configs"][last_embedding]
+        else:
+            emb_conf = {
+                "api_key": "",
+                "base_url": "https://api.openai.com/v1",
+                "model_name": "text-embedding-ada-002",
+                "retrieval_k": 4
+            }
+
         # --------------- 主要属性变量 ---------------
         # -- LLM通用参数 --
-        self.api_key_var = ctk.StringVar(value=self.loaded_config.get("api_key", ""))
-        self.base_url_var = ctk.StringVar(value=self.loaded_config.get("base_url", "https://api.openai.com/v1"))
-        self.interface_format_var = ctk.StringVar(value=self.loaded_config.get("interface_format", "OpenAI"))
-        self.model_name_var = ctk.StringVar(value=self.loaded_config.get("model_name", "gpt-4o-mini"))
-        self.temperature_var = ctk.DoubleVar(value=self.loaded_config.get("temperature", 0.7))
-        self.max_tokens_var = ctk.IntVar(value=self.loaded_config.get("max_tokens", 8192))
-        self.timeout_var = ctk.IntVar(value=self.loaded_config.get("timeout", 600))
+        self.api_key_var = ctk.StringVar(value=llm_conf.get("api_key", ""))
+        self.base_url_var = ctk.StringVar(value=llm_conf.get("base_url", "https://api.openai.com/v1"))
+        self.interface_format_var = ctk.StringVar(value=last_llm)
+        self.model_name_var = ctk.StringVar(value=llm_conf.get("model_name", "gpt-4o-mini"))
+        self.temperature_var = ctk.DoubleVar(value=llm_conf.get("temperature", 0.7))
+        self.max_tokens_var = ctk.IntVar(value=llm_conf.get("max_tokens", 8192))
+        self.timeout_var = ctk.IntVar(value=llm_conf.get("timeout", 600))
 
         # -- Embedding相关 --
-        self.embedding_interface_format_var = ctk.StringVar(value=self.loaded_config.get("embedding_interface_format", "OpenAI"))
-        self.embedding_api_key_var = ctk.StringVar(value=self.loaded_config.get("embedding_api_key", ""))
-        self.embedding_url_var = ctk.StringVar(value=self.loaded_config.get("embedding_url", "https://api.openai.com/v1"))
-        self.embedding_model_name_var = ctk.StringVar(value=self.loaded_config.get("embedding_model_name", "text-embedding-ada-002"))
-        self.embedding_retrieval_k_var = ctk.StringVar(value=str(self.loaded_config.get("embedding_retrieval_k", 4)))
+        self.embedding_interface_format_var = ctk.StringVar(value=last_embedding)
+        self.embedding_api_key_var = ctk.StringVar(value=emb_conf.get("api_key", ""))
+        self.embedding_url_var = ctk.StringVar(value=emb_conf.get("base_url", "https://api.openai.com/v1"))
+        self.embedding_model_name_var = ctk.StringVar(value=emb_conf.get("model_name", "text-embedding-ada-002"))
+        self.embedding_retrieval_k_var = ctk.StringVar(value=str(emb_conf.get("retrieval_k", 4)))
 
         # -- 小说参数相关 --
-        self.topic_default = self.loaded_config.get("topic", "")
-        self.genre_var = ctk.StringVar(value=self.loaded_config.get("genre", "玄幻"))
-        self.num_chapters_var = ctk.StringVar(value=str(self.loaded_config.get("num_chapters", 10)))
-        self.word_number_var = ctk.StringVar(value=str(self.loaded_config.get("word_number", 3000)))
-        self.filepath_var = ctk.StringVar(value=self.loaded_config.get("filepath", ""))
-
-        # -- 章节参数及可选要素 --
-        self.chapter_num_var = ctk.StringVar(value=str(self.loaded_config.get("chapter_num", "1")))
-        self.characters_involved_var = ctk.StringVar(value=self.loaded_config.get("characters_involved", ""))
-        self.key_items_var = ctk.StringVar(value=self.loaded_config.get("key_items", ""))
-        self.scene_location_var = ctk.StringVar(value=self.loaded_config.get("scene_location", ""))
-        self.time_constraint_var = ctk.StringVar(value=self.loaded_config.get("time_constraint", ""))
-
-        # 用于存储本章指导（多行）
-        self.user_guidance_default = self.loaded_config.get("user_guidance", "")
+        if self.loaded_config and "other_params" in self.loaded_config:
+            op = self.loaded_config["other_params"]
+            self.topic_default = op.get("topic", "")
+            self.genre_var = ctk.StringVar(value=op.get("genre", "玄幻"))
+            self.num_chapters_var = ctk.StringVar(value=str(op.get("num_chapters", 10)))
+            self.word_number_var = ctk.StringVar(value=str(op.get("word_number", 3000)))
+            self.filepath_var = ctk.StringVar(value=op.get("filepath", ""))
+            self.chapter_num_var = ctk.StringVar(value=str(op.get("chapter_num", "1")))
+            self.characters_involved_var = ctk.StringVar(value=op.get("characters_involved", ""))
+            self.key_items_var = ctk.StringVar(value=op.get("key_items", ""))
+            self.scene_location_var = ctk.StringVar(value=op.get("scene_location", ""))
+            self.time_constraint_var = ctk.StringVar(value=op.get("time_constraint", ""))
+            self.user_guidance_default = op.get("user_guidance", "")
+        else:
+            self.topic_default = ""
+            self.genre_var = ctk.StringVar(value="玄幻")
+            self.num_chapters_var = ctk.StringVar(value="10")
+            self.word_number_var = ctk.StringVar(value="3000")
+            self.filepath_var = ctk.StringVar(value="")
+            self.chapter_num_var = ctk.StringVar(value="1")
+            self.characters_involved_var = ctk.StringVar(value="")
+            self.key_items_var = ctk.StringVar(value="")
+            self.scene_location_var = ctk.StringVar(value="")
+            self.time_constraint_var = ctk.StringVar(value="")
+            self.user_guidance_default = ""
 
         # --------------- 整体Tab布局 ---------------
         self.tabview = ctk.CTkTabview(self.master)
@@ -327,10 +367,10 @@ class NovelGeneratorGUI:
         self.btn_frame_config.columnconfigure(0, weight=1)
         self.btn_frame_config.columnconfigure(1, weight=1)
 
-        save_config_btn = ctk.CTkButton(self.btn_frame_config, text="保存配置", command=self.save_config_btn, font=("Microsoft YaHei", 12))
+        save_config_btn = ctk.CTkButton(self.btn_frame_config, text="保存当前选择接口配置到文件", command=self.save_config_btn, font=("Microsoft YaHei", 12))
         save_config_btn.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
 
-        load_config_btn = ctk.CTkButton(self.btn_frame_config, text="加载配置", command=self.load_config_btn, font=("Microsoft YaHei", 12))
+        load_config_btn = ctk.CTkButton(self.btn_frame_config, text="加载当前选择接口配置到程序", command=self.load_config_btn, font=("Microsoft YaHei", 12))
         load_config_btn.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
     def create_label_with_help(self, parent, label_text, tooltip_key, row, column,
@@ -361,22 +401,39 @@ class NovelGeneratorGUI:
     def build_ai_config_tab(self):
         def on_interface_format_changed(new_value):
             """
-            当切换LLM接口格式时，自动设置base_url为对应的默认值。
+            当切换LLM接口格式时，自动设置base_url为对应的默认值，
+            并尝试加载该接口的已保存配置（若存在）。
             """
-            if new_value == "Ollama":
-                self.base_url_var.set("http://localhost:11434/v1")
-            elif new_value == "ML Studio":
-                self.base_url_var.set("http://localhost:1234/v1")
-            elif new_value == "OpenAI":
-                self.base_url_var.set("https://api.openai.com/v1")
-            elif new_value == "Azure OpenAI":
-                self.base_url_var.set("https://[az].openai.azure.com/openai/deployments/[model]/chat/completions?api-version=2024-08-01-preview")
-            elif new_value == "DeepSeek":
-                self.base_url_var.set("https://api.deepseek.com/v1")
-            elif new_value == "Gemini":
-                self.base_url_var.set("")  # Gemini 通常不需要 Base URL，可以设置为空
-            elif new_value == "Azure AI":
-                self.base_url_var.set("https://<your-endpoint>.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview")
+            self.interface_format_var.set(new_value)
+            config_data = load_config(self.config_file)
+            if config_data:
+                config_data["last_interface_format"] = new_value
+                save_config(config_data, self.config_file)
+            # 尝试加载已保存的配置
+            if self.loaded_config and "llm_configs" in self.loaded_config and new_value in self.loaded_config["llm_configs"]:
+                llm_conf = self.loaded_config["llm_configs"][new_value]
+                self.api_key_var.set(llm_conf.get("api_key", ""))
+                self.base_url_var.set(llm_conf.get("base_url", self.base_url_var.get()))
+                self.model_name_var.set(llm_conf.get("model_name", ""))
+                self.temperature_var.set(llm_conf.get("temperature", 0.7))
+                self.max_tokens_var.set(llm_conf.get("max_tokens", 8192))
+                self.timeout_var.set(llm_conf.get("timeout", 600))
+            else:
+                match new_value:
+                    case "Ollama":
+                        self.base_url_var.set("http://localhost:11434/v1")
+                    case "ML Studio":
+                        self.base_url_var.set("http://localhost:1234/v1")
+                    case "OpenAI":
+                        self.base_url_var.set("https://api.openai.com/v1")
+                    case "Azure OpenAI":
+                        self.base_url_var.set("https://[az].openai.azure.com/openai/deployments/[model]/chat/completions?api-version=2024-08-01-preview")
+                    case "DeepSeek":
+                        self.base_url_var.set("https://api.deepseek.com/v1")
+                    case "Gemini":
+                        self.base_url_var.set("")
+                    case "Azure AI":
+                        self.base_url_var.set("https://<your-endpoint>.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview")
 
         for i in range(7):
             self.ai_config_tab.grid_rowconfigure(i, weight=0)
@@ -542,22 +599,38 @@ class NovelGeneratorGUI:
     def build_embeddings_config_tab(self):
         def on_embedding_interface_changed(new_value):
             """
-            当切换Embedding接口格式时，自动设置embedding_url为对应的默认值。
+            当切换Embedding接口格式时，自动设置embedding_url为对应的默认值，
+            并尝试加载该接口的已保存配置（若存在）。
             """
-            if new_value == "Ollama":
-                self.embedding_url_var.set("http://localhost:11434/api")
-            elif new_value == "ML Studio":
-                self.embedding_url_var.set("http://localhost:1234/v1")
-            elif new_value == "OpenAI":
-                self.embedding_url_var.set("https://api.openai.com/v1")
-                self.embedding_model_name_var.set("text-embedding-ada-002")
-            elif new_value == "Azure OpenAI":
-                self.embedding_url_var.set("https://[az].openai.azure.com/openai/deployments/[model]/embeddings?api-version=2023-05-15")
-            elif new_value == "DeepSeek":
-                self.embedding_url_var.set("https://api.deepseek.com/v1")
-            elif new_value == "Gemini":
-                self.embedding_url_var.set("https://generativelanguage.googleapis.com/v1beta/")
-                self.embedding_model_name_var.set("models/text-embedding-004")
+            self.embedding_interface_format_var.set(new_value)
+            # 自动更新配置文件中的 last_embedding_interface_format
+            config_data = load_config(self.config_file)
+            if config_data:
+                config_data["last_embedding_interface_format"] = new_value
+                save_config(config_data, self.config_file)
+            # 尝试加载已保存的配置
+            if self.loaded_config and "embedding_configs" in self.loaded_config and new_value in self.loaded_config["embedding_configs"]:
+                emb_conf = self.loaded_config["embedding_configs"][new_value]
+                self.embedding_api_key_var.set(emb_conf.get("api_key", ""))
+                self.embedding_url_var.set(emb_conf.get("base_url", self.embedding_url_var.get()))
+                self.embedding_model_name_var.set(emb_conf.get("model_name", ""))
+                self.embedding_retrieval_k_var.set(str(emb_conf.get("retrieval_k", 4)))
+            else:
+                match new_value:
+                    case "Ollama":
+                        self.embedding_url_var.set("http://localhost:11434/api")
+                    case "ML Studio":
+                        self.embedding_url_var.set("http://localhost:1234/v1")
+                    case "OpenAI":
+                        self.embedding_url_var.set("https://api.openai.com/v1")
+                        self.embedding_model_name_var.set("text-embedding-ada-002")
+                    case "Azure OpenAI":
+                        self.embedding_url_var.set("https://[az].openai.azure.com/openai/deployments/[model]/embeddings?api-version=2023-05-15")
+                    case "DeepSeek":
+                        self.embedding_url_var.set("https://api.deepseek.com/v1")
+                    case "Gemini":
+                        self.embedding_url_var.set("https://generativelanguage.googleapis.com/v1beta/")
+                        self.embedding_model_name_var.set("models/text-embedding-004")
 
         for i in range(5):
             self.embeddings_config_tab.grid_rowconfigure(i, weight=0)
@@ -752,7 +825,6 @@ class NovelGeneratorGUI:
         self.user_guide_text = ctk.CTkTextbox(self.params_frame, height=80, wrap="word", font=("Microsoft YaHei", 12))
         TextWidgetContextMenu(self.user_guide_text)
         self.user_guide_text.grid(row=row_user_guide, column=1, padx=5, pady=5, sticky="nsew")
-        # 如果配置文件里有保存过本章指导，则恢复
         if self.user_guidance_default:
             self.user_guide_text.insert("0.0", self.user_guidance_default)
 
@@ -854,71 +926,78 @@ class NovelGeneratorGUI:
         """
         cfg = load_config(self.config_file)
         if cfg:
-            self.api_key_var.set(cfg.get("api_key", ""))
-            self.base_url_var.set(cfg.get("base_url", ""))
-            self.interface_format_var.set(cfg.get("interface_format", "OpenAI"))
-            self.model_name_var.set(cfg.get("model_name", ""))
-            self.temperature_var.set(cfg.get("temperature", 0.7))
-            self.max_tokens_var.set(cfg.get("max_tokens", 2048))
-            self.timeout_var.set(cfg.get("timeout", 600))
-
-            self.embedding_api_key_var.set(cfg.get("embedding_api_key", ""))
-            self.embedding_interface_format_var.set(cfg.get("embedding_interface_format", "OpenAI"))
-            self.embedding_url_var.set(cfg.get("embedding_url", ""))
-            self.embedding_model_name_var.set(cfg.get("embedding_model_name", ""))
-            self.embedding_retrieval_k_var.set(str(cfg.get("embedding_retrieval_k", 4)))
-
-            self.genre_var.set(cfg.get("genre", ""))
-            self.num_chapters_var.set(str(cfg.get("num_chapters", 10)))
-            self.word_number_var.set(str(cfg.get("word_number", 3000)))
-            self.filepath_var.set(cfg.get("filepath", ""))
-
-            topic_value = cfg.get("topic", "")
+            # 加载上次使用的接口类型
+            last_llm = cfg.get("last_interface_format", "OpenAI")
+            last_embedding = cfg.get("last_embedding_interface_format", "OpenAI")
+            self.interface_format_var.set(last_llm)
+            self.embedding_interface_format_var.set(last_embedding)
+            # 加载对应的LLM配置
+            llm_configs = cfg.get("llm_configs", {})
+            if last_llm in llm_configs:
+                llm_conf = llm_configs[last_llm]
+                self.api_key_var.set(llm_conf.get("api_key", ""))
+                self.base_url_var.set(llm_conf.get("base_url", "https://api.openai.com/v1"))
+                self.model_name_var.set(llm_conf.get("model_name", "gpt-4o-mini"))
+                self.temperature_var.set(llm_conf.get("temperature", 0.7))
+                self.max_tokens_var.set(llm_conf.get("max_tokens", 8192))
+                self.timeout_var.set(llm_conf.get("timeout", 600))
+            # 加载对应的Embedding配置
+            embedding_configs = cfg.get("embedding_configs", {})
+            if last_embedding in embedding_configs:
+                emb_conf = embedding_configs[last_embedding]
+                self.embedding_api_key_var.set(emb_conf.get("api_key", ""))
+                self.embedding_url_var.set(emb_conf.get("base_url", "https://api.openai.com/v1"))
+                self.embedding_model_name_var.set(emb_conf.get("model_name", "text-embedding-ada-002"))
+                self.embedding_retrieval_k_var.set(str(emb_conf.get("retrieval_k", 4)))
+            # 加载其它参数
+            other_params = cfg.get("other_params", {})
             self.topic_text.delete("0.0", "end")
-            self.topic_text.insert("0.0", topic_value)
-
-            # 新增：读取章节号、本章指导、可选元素
-            self.chapter_num_var.set(str(cfg.get("chapter_num", "1")))
-
-            user_guidance_value = cfg.get("user_guidance", "")
+            self.topic_text.insert("0.0", other_params.get("topic", ""))
+            self.genre_var.set(other_params.get("genre", "玄幻"))
+            self.num_chapters_var.set(str(other_params.get("num_chapters", 10)))
+            self.word_number_var.set(str(other_params.get("word_number", 3000)))
+            self.filepath_var.set(other_params.get("filepath", ""))
+            self.chapter_num_var.set(str(other_params.get("chapter_num", "1")))
             self.user_guide_text.delete("0.0", "end")
-            self.user_guide_text.insert("0.0", user_guidance_value)
-
-            self.characters_involved_var.set(cfg.get("characters_involved", ""))
-            self.key_items_var.set(cfg.get("key_items", ""))
-            self.scene_location_var.set(cfg.get("scene_location", ""))
-            self.time_constraint_var.set(cfg.get("time_constraint", ""))
-
+            self.user_guide_text.insert("0.0", other_params.get("user_guidance", ""))
+            self.characters_involved_var.set(other_params.get("characters_involved", ""))
+            self.key_items_var.set(other_params.get("key_items", ""))
+            self.scene_location_var.set(other_params.get("scene_location", ""))
+            self.time_constraint_var.set(other_params.get("time_constraint", ""))
             self.log("已加载配置。")
         else:
             messagebox.showwarning("提示", "未找到或无法读取配置文件。")
 
     def save_config_btn(self):
         """
-        将当前界面的配置信息保存到 config.json
+        将当前界面的配置信息保存到 config.json，
+        按照不同接口类型分别保存 LLM 与 Embedding 配置，确保各自独立。
         """
-        config_data = {
+        current_llm_interface = self.interface_format_var.get().strip()
+        current_embedding_interface = self.embedding_interface_format_var.get().strip()
+        # 构造当前LLM配置
+        llm_config = {
             "api_key": self.api_key_var.get(),
             "base_url": self.base_url_var.get(),
-            "interface_format": self.interface_format_var.get(),
             "model_name": self.model_name_var.get(),
             "temperature": self.temperature_var.get(),
             "max_tokens": self.max_tokens_var.get(),
-            "timeout": self.safe_get_int(self.timeout_var, 600),
-
-            "embedding_api_key": self.embedding_api_key_var.get(),
-            "embedding_interface_format": self.embedding_interface_format_var.get(),
-            "embedding_url": self.embedding_url_var.get(),
-            "embedding_model_name": self.embedding_model_name_var.get(),
-            "embedding_retrieval_k": self.safe_get_int(self.embedding_retrieval_k_var, 4),
-
+            "timeout": self.safe_get_int(self.timeout_var, 600)
+        }
+        # 构造当前Embedding配置
+        embedding_config = {
+            "api_key": self.embedding_api_key_var.get(),
+            "base_url": self.embedding_url_var.get(),
+            "model_name": self.embedding_model_name_var.get(),
+            "retrieval_k": self.safe_get_int(self.embedding_retrieval_k_var, 4)
+        }
+        # 构造其它参数
+        other_params = {
             "topic": self.topic_text.get("0.0", "end").strip(),
             "genre": self.genre_var.get(),
             "num_chapters": self.safe_get_int(self.num_chapters_var, 10),
             "word_number": self.safe_get_int(self.word_number_var, 3000),
             "filepath": self.filepath_var.get(),
-
-            # 新增：章节号、本章指导、可选要素
             "chapter_num": self.chapter_num_var.get(),
             "user_guidance": self.user_guide_text.get("0.0", "end").strip(),
             "characters_involved": self.characters_involved_var.get(),
@@ -927,7 +1006,23 @@ class NovelGeneratorGUI:
             "time_constraint": self.time_constraint_var.get()
         }
 
-        if save_config(config_data, self.config_file):
+        # 读取已有配置（若存在）
+        existing_config = load_config(self.config_file)
+        if not existing_config:
+            existing_config = {}
+        existing_config["last_interface_format"] = current_llm_interface
+        existing_config["last_embedding_interface_format"] = current_embedding_interface
+        if "llm_configs" not in existing_config:
+            existing_config["llm_configs"] = {}
+        existing_config["llm_configs"][current_llm_interface] = llm_config
+
+        if "embedding_configs" not in existing_config:
+            existing_config["embedding_configs"] = {}
+        existing_config["embedding_configs"][current_embedding_interface] = embedding_config
+
+        existing_config["other_params"] = other_params
+
+        if save_config(existing_config, self.config_file):
             messagebox.showinfo("提示", "配置已保存至 config.json")
             self.log("配置已保存。")
         else:
@@ -1151,7 +1246,6 @@ class NovelGeneratorGUI:
                         f"当前章节字数 ({len(edited_text)}) 低于目标字数({word_number})的70%，是否要尝试扩写？"
                     )
                     if ask:
-                        # 调用 enrich_chapter_text 进行扩写
                         self.safe_log("正在扩写章节内容...")
                         enriched = enrich_chapter_text(
                             chapter_text=edited_text,
@@ -1165,15 +1259,12 @@ class NovelGeneratorGUI:
                             timeout=timeout_val
                         )
                         edited_text = enriched
-                        # 更新文本框显示
                         self.master.after(0, lambda: self.chapter_result.delete("0.0", "end"))
                         self.master.after(0, lambda: self.chapter_result.insert("0.0", edited_text))
 
-                # 将（可能已扩写的）文本保存到本地文件
                 clear_file_content(chapter_file)
                 save_string_to_txt(edited_text, chapter_file)
 
-                # 调用 finalize_chapter 做最终处理（更新全局摘要、角色状态、向量库等）
                 finalize_chapter(
                     novel_number=chap_num,
                     word_number=word_number,
@@ -1377,7 +1468,7 @@ class NovelGeneratorGUI:
     def save_novel_architecture(self):
         filepath = self.filepath_var.get().strip()
         if not filepath:
-            messagebox.showwarning("警告", "请先设置保存文件路径")
+            messagebox.showwarning("警告", "请先设置保存文件路径。")
             return
         content = self.setting_text.get("0.0", "end").strip()
         filename = os.path.join(filepath, "Novel_architecture.txt")
@@ -1554,7 +1645,6 @@ class NovelGeneratorGUI:
 
         self.chapter_select_var = ctk.StringVar(value="")
 
-        # 下拉菜单（若章节超10个，则启用滚动限制）
         self.chapter_select_menu = ctk.CTkOptionMenu(
             top_frame,
             values=[],
@@ -1580,7 +1670,6 @@ class NovelGeneratorGUI:
     def refresh_chapters_list(self):
         """
         刷新并获取当前保存路径下的所有章节txt文件，并更新下拉菜单。
-        当章节多于10个时，启用CTkOptionMenu的滚动限制。
         """
         filepath = self.filepath_var.get().strip()
         chapters_dir = os.path.join(filepath, "chapters")
