@@ -187,6 +187,9 @@ class NovelGeneratorGUI:
         max_tokens = self.max_tokens_var.get()
         timeout = self.timeout_var.get()
 
+        if interface_format == 'Ollama' and api_key == '':
+            api_key = 'ollama'
+
         test_llm_config(
             interface_format=interface_format,
             api_key=api_key,
