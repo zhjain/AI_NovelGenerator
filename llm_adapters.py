@@ -291,5 +291,7 @@ def create_llm_adapter(
     elif fmt == "gemini":
         # base_url 对 Gemini 暂无用处，可忽略
         return GeminiAdapter(api_key, model_name, max_tokens, temperature, timeout)
+    elif fmt == "阿里云百炼":
+        return OpenAIAdapter(api_key, base_url, model_name, max_tokens, temperature, timeout)
     else:
         raise ValueError(f"Unknown interface_format: {interface_format}")
