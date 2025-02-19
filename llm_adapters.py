@@ -172,6 +172,9 @@ class OllamaAdapter(BaseLLMAdapter):
         self.temperature = temperature
         self.timeout = timeout
 
+        if self.api_key == '':
+            self.api_key= 'ollama'
+
         self._client = ChatOpenAI(
             model=self.model_name,
             api_key=self.api_key,

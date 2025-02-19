@@ -35,9 +35,6 @@ def generate_novel_architecture_ui(self):
             max_tokens = self.max_tokens_var.get()
             timeout_val = self.safe_get_int(self.timeout_var, 600)
 
-            if interface_format == 'Ollama' and api_key == '':
-                api_key = 'ollama'
-
             topic = self.topic_text.get("0.0", "end").strip()
             genre = self.genre_var.get().strip()
             num_chapters = self.safe_get_int(self.num_chapters_var, 10)
@@ -83,9 +80,6 @@ def generate_chapter_blueprint_ui(self):
             max_tokens = self.max_tokens_var.get()
             timeout_val = self.safe_get_int(self.timeout_var, 600)
 
-            if interface_format == 'Ollama' and api_key == '':
-                api_key = 'ollama'
-
             self.safe_log("开始生成章节蓝图...")
             Chapter_blueprint_generate(
                 interface_format=interface_format,
@@ -121,9 +115,6 @@ def generate_chapter_draft_ui(self):
             temperature = self.temperature_var.get()
             max_tokens = self.max_tokens_var.get()
             timeout_val = self.safe_get_int(self.timeout_var, 600)
-
-            if interface_format == 'Ollama' and api_key == '':
-                api_key = 'ollama'
 
             chap_num = self.safe_get_int(self.chapter_num_var, 1)
             word_number = self.safe_get_int(self.word_number_var, 3000)
@@ -255,9 +246,6 @@ def finalize_chapter_ui(self):
             max_tokens = self.max_tokens_var.get()
             timeout_val = self.safe_get_int(self.timeout_var, 600)
 
-            if interface_format == 'Ollama' and api_key == '':
-                api_key = 'ollama'
-
             embedding_api_key = self.embedding_api_key_var.get().strip()
             embedding_url = self.embedding_url_var.get().strip()
             embedding_interface_format = self.embedding_interface_format_var.get().strip()
@@ -337,9 +325,6 @@ def do_consistency_check(self):
             interface_format = self.interface_format_var.get()
             max_tokens = self.max_tokens_var.get()
             timeout = self.timeout_var.get()
-
-            if interface_format == 'Ollama' and api_key == '':
-                api_key = 'ollama'
 
             chap_num = self.safe_get_int(self.chapter_num_var, 1)
             chap_file = os.path.join(filepath, "chapters", f"chapter_{chap_num}.txt")
