@@ -280,7 +280,7 @@ class VolcanoEngineAIAdapter(BaseLLMAdapter):
 
         self._client = OpenAI(
             # 此为默认路径，您可根据业务所在地域进行配置
-            base_url="https://ark.cn-beijing.volces.com/api/v3/bots",
+            base_url=base_url,
             # 从环境变量中获取您的 API Key
             api_key=api_key
         )
