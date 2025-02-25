@@ -98,7 +98,7 @@ def build_ai_config_tab(self):
 
     # 1) API Key
     create_label_with_help(self, parent=self.ai_config_tab, label_text="LLM API Key:", tooltip_key="api_key", row=0, column=0, font=("Microsoft YaHei", 12))
-    api_key_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.api_key_var, font=("Microsoft YaHei", 12))
+    api_key_entry = ctk.CTkEntry(self.ai_config_tab, textvariable=self.api_key_var, font=("Microsoft YaHei", 12),show="*")
     api_key_entry.grid(row=0, column=1, padx=5, pady=5, columnspan=2, sticky="nsew")
 
     # 2) Base URL
