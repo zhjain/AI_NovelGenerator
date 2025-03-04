@@ -44,16 +44,24 @@ def debug_log(prompt: str, response_content: str):
 
 def invoke_with_cleaning(llm_adapter, prompt: str) -> str:
     """
-    调用 LLM，增加重试和清洗逻辑
-    如果多次失败，则返回空字符串以继续流程，而不是中断。
+    增强版调用方法，支持自定义prompt结构
     """
     def _invoke(prompt):
         return llm_adapter.invoke(prompt)
 
     response = call_with_retry(func=_invoke, max_retries=3, fallback_return="", prompt=prompt)
+    
     if not response:
         logging.warning("No response from model after retry. Return empty.")
         return ""
+    
+    # 增强清洗逻辑
     cleaned_text = remove_think_tags(response)
+    
+    # 移除可能的多余标记
+    cleaned_text = re.sub(r'^```markdown\s*', '', cleaned_text, flags=re.IGNORECASE)
+    cleaned_text = re.sub(r'\s*```$', '', cleaned_text)
+    
     debug_log(prompt, cleaned_text)
     return cleaned_text.strip()
+
