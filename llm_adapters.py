@@ -114,7 +114,8 @@ class GeminiAdapter(BaseLLMAdapter):
                 config = types.GenerateContentConfig(
                     max_output_tokens=self.max_tokens,
                     temperature=self.temperature,
-                )
+                ),
+                timeout=self.timeout  # 添加超时参数
             )
             if response and response.text:
                 return response.text
@@ -212,11 +213,15 @@ class MLStudioAdapter(BaseLLMAdapter):
         )
 
     def invoke(self, prompt: str) -> str:
-        response = self._client.invoke(prompt)
-        if not response:
-            logging.warning("No response from MLStudioAdapter.")
+        try:
+            response = self._client.invoke(prompt)
+            if not response:
+                logging.warning("No response from MLStudioAdapter.")
+                return ""
+            return response.content
+        except Exception as e:
+            logging.error(f"ML Studio API 调用超时或失败: {e}")
             return ""
-        return response.content
 
 class AzureAIAdapter(BaseLLMAdapter):
     """
@@ -279,24 +284,27 @@ class VolcanoEngineAIAdapter(BaseLLMAdapter):
         self.timeout = timeout
 
         self._client = OpenAI(
-            # 此为默认路径，您可根据业务所在地域进行配置
             base_url=base_url,
-            # 从环境变量中获取您的 API Key
-            api_key=api_key
+            api_key=api_key,
+            timeout=timeout  # 添加超时配置
         )
     def invoke(self, prompt: str) -> str:
-        response = self._client.chat.completions.create(
-            model=self.model_name,  # bot-20250223190248-2bq5k 为您当前的智能体的ID，注意此处与Chat API存在差异。差异对比详见 SDK使用指南
-            messages=[
-                {"role": "system", "content": "你是DeepSeek，是一个 AI 人工智能助手"},
-                {"role": "user", "content": prompt},
-            ],
-        )
-        # response = self._client.invoke(prompt)
-        if not response:
-            logging.warning("No response from DeepSeekAdapter.")
+        try:
+            response = self._client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "你是DeepSeek，是一个 AI 人工智能助手"},
+                    {"role": "user", "content": prompt},
+                ],
+                timeout=self.timeout  # 添加超时参数
+            )
+            if not response:
+                logging.warning("No response from DeepSeekAdapter.")
+                return ""
+            return response.choices[0].message.content
+        except Exception as e:
+            logging.error(f"火山引擎API调用超时或失败: {e}")
             return ""
-        return response.choices[0].message.content
 
 def create_llm_adapter(
     interface_format: str,
