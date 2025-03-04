@@ -25,6 +25,13 @@ def generate_novel_architecture_ui(self):
         return
 
     def task():
+
+        confirm = messagebox.askyesno("确认", "确定要生成小说架构吗？")
+        if not confirm:
+            self.enable_button_safe(self.btn_generate_architecture)
+            return
+
+
         self.disable_button_safe(self.btn_generate_architecture)
         try:
             interface_format = self.interface_format_var.get().strip()
@@ -69,6 +76,9 @@ def generate_chapter_blueprint_ui(self):
         return
 
     def task():
+        if not messagebox.askyesno("确认", "确定要生成章节草稿吗？"):
+            self.enable_button_safe(self.btn_generate_chapter)
+            return
         self.disable_button_safe(self.btn_generate_directory)
         try:
             interface_format = self.interface_format_var.get().strip()
@@ -168,7 +178,50 @@ def generate_chapter_draft_ui(self):
                 dialog.geometry("600x400")
                 text_box = ctk.CTkTextbox(dialog, wrap="word", font=("Microsoft YaHei", 12))
                 text_box.pack(fill="both", expand=True, padx=10, pady=10)
-                text_box.insert("0.0", prompt_text)
+                
+                # 插入角色内容
+                final_prompt = prompt_text
+                role_names = [name.strip() for name in self.char_inv_text.get("0.0", "end").strip().split(',') if name.strip()]
+                role_lib_path = os.path.join(filepath, "角色库")
+                role_contents = []
+                
+                if os.path.exists(role_lib_path):
+                    for root, dirs, files in os.walk(role_lib_path):
+                        for file in files:
+                            if file.endswith(".txt") and os.path.splitext(file)[0] in role_names:
+                                file_path = os.path.join(root, file)
+                                try:
+                                    with open(file_path, 'r', encoding='utf-8') as f:
+                                        role_contents.append(f"{os.path.splitext(file)[0]}：\n{f.read()}\n")
+                                except Exception as e:
+                                    self.safe_log(f"读取角色文件 {file} 失败: {str(e)}")
+                
+                if role_contents:
+                    role_content_str = "\n".join(role_contents)
+                    # 更精确的替换逻辑，处理不同情况下的占位符
+                    placeholder_variations = [
+                        "核心人物(可能未指定)：{characters_involved}",
+                        "核心人物：{characters_involved}",
+                        "核心人物(可能未指定):{characters_involved}",
+                        "核心人物:{characters_involved}"
+                    ]
+                    
+                    for placeholder in placeholder_variations:
+                        if placeholder in final_prompt:
+                            final_prompt = final_prompt.replace(
+                                placeholder,
+                                f"核心人物：\n{role_content_str}"
+                            )
+                            break
+                    else:  # 如果没有找到任何已知占位符变体
+                        lines = final_prompt.split('\n')
+                        for i, line in enumerate(lines):
+                            if "核心人物" in line and "：" in line:
+                                lines[i] = f"核心人物：\n{role_content_str}"
+                                break
+                        final_prompt = '\n'.join(lines)
+
+                text_box.insert("0.0", final_prompt)
                 button_frame = ctk.CTkFrame(dialog)
                 button_frame.pack(pady=10)
                 def on_confirm():
@@ -236,6 +289,13 @@ def finalize_chapter_ui(self):
         return
 
     def task():
+        if not messagebox.askyesno("确认", "确定要定稿当前章节吗？"):
+            self.enable_button_safe(self.btn_finalize_chapter)
+            return
+        if not messagebox.askyesno("确认", "确定要生成章节草稿吗？"):
+            self.enable_button_safe(self.btn_generate_chapter)
+            return
+
         self.disable_button_safe(self.btn_finalize_chapter)
         try:
             interface_format = self.interface_format_var.get().strip()
