@@ -5,7 +5,6 @@
 """
 import os
 import logging
-from nltk import download
 from llm_adapters import create_llm_adapter
 from prompt_definitions import first_chapter_draft_prompt, next_chapter_draft_prompt, summarize_recent_chapters_prompt
 from chapter_directory_parser import get_chapter_info_from_blueprint
@@ -59,7 +58,7 @@ def summarize_recent_chapters(
     short_summary = ""
     next_chapter_keywords = ""
     for line in response_text.splitlines():
-        line = line.strip()
+        line = line.strip() 
         if line.startswith("短期摘要:"):
             short_summary = line.replace("短期摘要:", "").strip()
         elif line.startswith("下一章关键字:"):
@@ -91,7 +90,7 @@ def build_chapter_prompt(
     timeout: int = 600
 ) -> str:
     """
-    构造当前章节的请求提示词，不调用 LLM，仅返回构造好的提示词字符串。
+    构造当前章节的请求提示词，新增对下一章节元数据的引用
     """
     arch_file = os.path.join(filepath, "Novel_architecture.txt")
     novel_architecture_text = read_file(arch_file)
@@ -102,6 +101,7 @@ def build_chapter_prompt(
     character_state_file = os.path.join(filepath, "character_state.txt")
     character_state_text = read_file(character_state_file)
     
+    # 获取当前章节信息
     chapter_info = get_chapter_info_from_blueprint(blueprint_text, novel_number)
     chapter_title = chapter_info["chapter_title"]
     chapter_role = chapter_info["chapter_role"]
@@ -110,6 +110,17 @@ def build_chapter_prompt(
     foreshadowing = chapter_info["foreshadowing"]
     plot_twist_level = chapter_info["plot_twist_level"]
     chapter_summary = chapter_info["chapter_summary"]
+
+    # 新增：获取下一章节信息
+    next_chapter_number = novel_number + 1
+    next_chapter_info = get_chapter_info_from_blueprint(blueprint_text, next_chapter_number)
+    next_chapter_title = next_chapter_info.get("chapter_title", "（未命名）")
+    next_chapter_role = next_chapter_info.get("chapter_role", "过渡章节")
+    next_chapter_purpose = next_chapter_info.get("chapter_purpose", "承上启下")
+    next_chapter_suspense = next_chapter_info.get("suspense_level", "中等")
+    next_chapter_foreshadow = next_chapter_info.get("foreshadowing", "无特殊伏笔")
+    next_chapter_twist = next_chapter_info.get("plot_twist_level", "★☆☆☆☆")
+    next_chapter_summary = next_chapter_info.get("chapter_summary", "衔接过渡内容")
 
     chapters_dir = os.path.join(filepath, "chapters")
     os.makedirs(chapters_dir, exist_ok=True)
@@ -187,14 +198,24 @@ def build_chapter_prompt(
             global_summary=global_summary_text,
             character_state=character_state_text,
             context_excerpt=relevant_context,
-            previous_chapter_excerpt=previous_chapter_excerpt
+            previous_chapter_excerpt=previous_chapter_excerpt,
+            
+            # 新增下一章节参数
+            next_chapter_number=next_chapter_number,
+            next_chapter_title=next_chapter_title,
+            next_chapter_role=next_chapter_role,
+            next_chapter_purpose=next_chapter_purpose,
+            next_chapter_suspense_level=next_chapter_suspense,
+            next_chapter_foreshadowing=next_chapter_foreshadow,
+            next_chapter_plot_twist_level=next_chapter_twist,
+            next_chapter_summary=next_chapter_summary
         )
     return prompt_text
 
 def generate_chapter_draft(
     api_key: str,
     base_url: str,
-    model_name: str,
+    model_name: str, 
     filepath: str,
     novel_number: int,
     word_number: int,
@@ -212,16 +233,11 @@ def generate_chapter_draft(
     interface_format: str = "openai",
     max_tokens: int = 2048,
     timeout: int = 600,
-    custom_prompt_text: str = None  # 新增参数，若不为 None，则使用用户编辑后的提示词
+    custom_prompt_text: str = None
 ) -> str:
     """
-    根据 novel_number 判断是否为第一章。
-    - 若是第一章，则使用 first_chapter_draft_prompt
-    - 否则使用 next_chapter_draft_prompt
-    若 custom_prompt_text 提供，则以此作为提示词进行生成。
-    最终将生成文本存入 chapters/chapter_{novel_number}.txt。
+    生成章节草稿，支持自定义提示词
     """
-    # 构造提示词：若用户提供了编辑后的提示词，则使用之；否则构造默认提示词
     if custom_prompt_text is None:
         prompt_text = build_chapter_prompt(
             api_key=api_key,
