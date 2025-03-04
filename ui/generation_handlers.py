@@ -192,7 +192,7 @@ def generate_chapter_draft_ui(self):
                                 file_path = os.path.join(root, file)
                                 try:
                                     with open(file_path, 'r', encoding='utf-8') as f:
-                                        role_contents.append(f"{os.path.splitext(file)[0]}：\n{f.read()}\n")
+                                        role_contents.append(f.read().strip())  # 直接使用文件内容，不添加重复名字
                                 except Exception as e:
                                     self.safe_log(f"读取角色文件 {file} 失败: {str(e)}")
                 
