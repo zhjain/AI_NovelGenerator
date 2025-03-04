@@ -246,22 +246,55 @@ class NovelGeneratorGUI:
         
         # 动态加载角色分类
         if os.path.exists(role_lib_path):
+            # 配置网格布局参数
+            scroll_frame.columnconfigure(0, weight=1)
+            max_roles_per_row = 4
+            current_row = 0
+            
             for category in os.listdir(role_lib_path):
                 category_path = os.path.join(role_lib_path, category)
                 if os.path.isdir(category_path):
-                    # 添加分类标签
-                    category_label = ctk.CTkLabel(scroll_frame, text=f"【{category}】", font=("Microsoft YaHei", 12, "bold"))
-                    category_label.pack(anchor="w", pady=(10,5))
+                    # 创建分类容器
+                    category_frame = ctk.CTkFrame(scroll_frame)
+                    category_frame.grid(row=current_row, column=0, sticky="w", pady=(10,5), padx=5)
                     
-                    # 添加该分类下的角色
+                    # 添加分类标签
+                    category_label = ctk.CTkLabel(category_frame, text=f"【{category}】", 
+                                                font=("Microsoft YaHei", 12, "bold"))
+                    category_label.grid(row=0, column=0, padx=(0,10), sticky="w")
+                    
+                    # 初始化角色排列参数
+                    role_count = 0
+                    row_num = 0
+                    col_num = 1  # 从第1列开始（第0列是分类标签）
+                    
+                    # 添加角色复选框
                     for role_file in os.listdir(category_path):
                         if role_file.endswith(".txt"):
                             role_name = os.path.splitext(role_file)[0]
-                            # 检查是否已存在同名角色
                             if not any(name == role_name for _, name in self.selected_roles):
-                                chk = ctk.CTkCheckBox(scroll_frame, text=role_name)
-                                chk.pack(anchor="w", padx=20)
+                                chk = ctk.CTkCheckBox(category_frame, text=role_name)
+                                chk.grid(row=row_num, column=col_num, padx=5, pady=2, sticky="w")
                                 self.selected_roles.append((chk, role_name))
+                                
+                                # 更新行列位置
+                                role_count += 1
+                                col_num += 1
+                                if col_num > max_roles_per_row:
+                                    col_num = 1
+                                    row_num += 1
+                    
+                    # 如果没有角色，调整分类标签占满整行
+                    if role_count == 0:
+                        category_label.grid(columnspan=max_roles_per_row+1, sticky="w")
+                    
+                    # 更新主布局的行号
+                    current_row += 1
+                    
+                    # 添加分隔线
+                    separator = ctk.CTkFrame(scroll_frame, height=1, fg_color="gray")
+                    separator.grid(row=current_row, column=0, sticky="ew", pady=5)
+                    current_row += 1
         
         # 底部按钮框架
         btn_frame = ctk.CTkFrame(main_frame)
