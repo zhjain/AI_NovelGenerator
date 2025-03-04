@@ -66,8 +66,24 @@ def build_novel_params_area(self, start_row=1):
     # 7) 可选元素：核心人物/关键道具/空间坐标/时间压力
     row_idx = 6
     create_label_with_help_for_novel_params(self, parent=self.params_frame, label_text="核心人物:", tooltip_key="characters_involved", row=row_idx, column=0, font=("Microsoft YaHei", 12))
-    char_inv_entry = ctk.CTkEntry(self.params_frame, textvariable=self.characters_involved_var, font=("Microsoft YaHei", 12))
-    char_inv_entry.grid(row=row_idx, column=1, padx=5, pady=5, sticky="ew")
+    
+    # 核心人物输入框+按钮容器
+    char_inv_frame = ctk.CTkFrame(self.params_frame)
+    char_inv_frame.grid(row=row_idx, column=1, padx=5, pady=5, sticky="nsew")
+    char_inv_frame.columnconfigure(0, weight=1)
+    char_inv_frame.rowconfigure(0, weight=1)
+    
+    # 三行文本输入框
+    self.char_inv_text = ctk.CTkTextbox(char_inv_frame, height=60, wrap="word", font=("Microsoft YaHei", 12))
+    self.char_inv_text.grid(row=0, column=0, padx=(0,5), pady=5, sticky="nsew")
+    if hasattr(self, 'characters_involved_var'):
+        self.char_inv_text.insert("0.0", self.characters_involved_var.get())
+    
+    # 导入按钮
+    import_btn = ctk.CTkButton(char_inv_frame, text="导入", width=60, 
+                             command=self.show_character_import_window,
+                             font=("Microsoft YaHei", 12))
+    import_btn.grid(row=0, column=1, padx=(0,5), pady=5, sticky="e")
     row_idx += 1
     create_label_with_help_for_novel_params(self, parent=self.params_frame, label_text="关键道具:", tooltip_key="key_items", row=row_idx, column=0, font=("Microsoft YaHei", 12))
     key_items_entry = ctk.CTkEntry(self.params_frame, textvariable=self.key_items_var, font=("Microsoft YaHei", 12))
@@ -84,19 +100,38 @@ def build_novel_params_area(self, start_row=1):
 def build_optional_buttons_area(self, start_row=2):
     self.optional_btn_frame = ctk.CTkFrame(self.right_frame)
     self.optional_btn_frame.grid(row=start_row, column=0, sticky="ew", padx=5, pady=5)
-    self.optional_btn_frame.columnconfigure((0, 1, 2, 3), weight=1)
+    self.optional_btn_frame.columnconfigure((0, 1, 2, 3, 4), weight=1)
 
-    self.btn_check_consistency = ctk.CTkButton(self.optional_btn_frame, text="一致性审校", command=self.do_consistency_check, font=("Microsoft YaHei", 12))
+    self.btn_check_consistency = ctk.CTkButton(
+        self.optional_btn_frame, text="一致性审校", command=self.do_consistency_check, 
+        font=("Microsoft YaHei", 12), width=100  # 固定宽度
+    )
     self.btn_check_consistency.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
 
-    self.btn_import_knowledge = ctk.CTkButton(self.optional_btn_frame, text="导入知识库", command=self.import_knowledge_handler, font=("Microsoft YaHei", 12))
+    self.btn_import_knowledge = ctk.CTkButton(
+        self.optional_btn_frame, text="导入知识库", command=self.import_knowledge_handler,
+        font=("Microsoft YaHei", 12), width=100
+    )
     self.btn_import_knowledge.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
-    self.btn_clear_vectorstore = ctk.CTkButton(self.optional_btn_frame, text="清空向量库", fg_color="red", command=self.clear_vectorstore_handler, font=("Microsoft YaHei", 12))
+    self.btn_clear_vectorstore = ctk.CTkButton(
+        self.optional_btn_frame, text="清空向量库", fg_color="red", 
+        command=self.clear_vectorstore_handler, font=("Microsoft YaHei", 12), width=100
+    )
     self.btn_clear_vectorstore.grid(row=0, column=2, padx=5, pady=5, sticky="ew")
 
-    self.plot_arcs_btn = ctk.CTkButton(self.optional_btn_frame, text="查看剧情要点", command=self.show_plot_arcs_ui, font=("Microsoft YaHei", 12))
+    self.plot_arcs_btn = ctk.CTkButton(
+        self.optional_btn_frame, text="查看剧情要点", command=self.show_plot_arcs_ui,
+        font=("Microsoft YaHei", 12), width=100
+    )
     self.plot_arcs_btn.grid(row=0, column=3, padx=5, pady=5, sticky="ew")
+
+    # 新增角色库按钮
+    self.role_library_btn = ctk.CTkButton(
+        self.optional_btn_frame, text="角色库", command=self.show_role_library,
+        font=("Microsoft YaHei", 12), width=100
+    )
+    self.role_library_btn.grid(row=0, column=4, padx=5, pady=5, sticky="ew")
 
 def create_label_with_help_for_novel_params(self, parent, label_text, tooltip_key, row, column, font=None, sticky="e", padx=5, pady=5):
     frame = ctk.CTkFrame(parent)
