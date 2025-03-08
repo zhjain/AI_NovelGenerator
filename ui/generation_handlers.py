@@ -292,9 +292,6 @@ def finalize_chapter_ui(self):
         if not messagebox.askyesno("确认", "确定要定稿当前章节吗？"):
             self.enable_button_safe(self.btn_finalize_chapter)
             return
-        if not messagebox.askyesno("确认", "确定要生成章节草稿吗？"):
-            self.enable_button_safe(self.btn_generate_chapter)
-            return
 
         self.disable_button_safe(self.btn_finalize_chapter)
         try:
