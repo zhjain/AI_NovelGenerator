@@ -178,6 +178,10 @@ def generate_chapter_draft_ui(self):
                 dialog.geometry("600x400")
                 text_box = ctk.CTkTextbox(dialog, wrap="word", font=("Microsoft YaHei", 12))
                 text_box.pack(fill="both", expand=True, padx=10, pady=10)
+
+                # 字数统计标签
+                wordcount_label = ctk.CTkLabel(dialog, text="字数：0", font=("Microsoft YaHei", 12))
+                wordcount_label.pack(side="left", padx=(10,0), pady=5)
                 
                 # 插入角色内容
                 final_prompt = prompt_text
@@ -222,6 +226,16 @@ def generate_chapter_draft_ui(self):
                         final_prompt = '\n'.join(lines)
 
                 text_box.insert("0.0", final_prompt)
+                # 更新字数函数
+                def update_word_count(event=None):
+                    text = text_box.get("0.0", "end-1c")
+                    text_length = len(text)
+                    wordcount_label.configure(text=f"字数：{text_length}")
+
+                text_box.bind("<KeyRelease>", update_word_count)
+                text_box.bind("<ButtonRelease>", update_word_count)
+                update_word_count()  # 初始化统计
+
                 button_frame = ctk.CTkFrame(dialog)
                 button_frame.pack(pady=10)
                 def on_confirm():
