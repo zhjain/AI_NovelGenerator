@@ -350,6 +350,15 @@ class RoleLibrary:
         try:
             # 创建临时角色库目录
             target_dir = os.path.join(self.save_path, "临时角色库")
+            # 清空现有临时角色库
+            if os.path.exists(target_dir):
+                for filename in os.listdir(target_dir):
+                    file_path = os.path.join(target_dir, filename)
+                    try:
+                        if os.path.isfile(file_path):
+                            os.unlink(file_path)
+                    except Exception as e:
+                        print(f"删除文件{file_path}时出错: {e}")
             os.makedirs(target_dir, exist_ok=True)
 
             # 调用LLM进行分析
