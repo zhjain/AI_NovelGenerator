@@ -442,7 +442,12 @@ def import_knowledge_handler(self):
                 self.handle_exception("导入知识库时出错")
             finally:
                 self.enable_button_safe(self.btn_import_knowledge)
-        threading.Thread(target=task, daemon=True).start()
+        try:
+            thread = threading.Thread(target=task, daemon=True)
+            thread.start()
+        except Exception as e:
+            self.enable_button_safe(self.btn_import_knowledge)
+            messagebox.showerror("错误", f"线程启动失败: {str(e)}")
 
 def clear_vectorstore_handler(self):
     filepath = self.filepath_var.get().strip()
