@@ -42,26 +42,36 @@ def debug_log(prompt: str, response_content: str):
         f"\n[######################################### Response #########################################]\n{response_content}\n"
     )
 
-def invoke_with_cleaning(llm_adapter, prompt: str) -> str:
-    """
-    增强版调用方法，支持自定义prompt结构
-    """
-    def _invoke(prompt):
-        return llm_adapter.invoke(prompt)
-
-    response = call_with_retry(func=_invoke, max_retries=3, fallback_return="", prompt=prompt)
+def invoke_with_cleaning(llm_adapter, prompt: str, max_retries: int = 3) -> str:
+    """调用 LLM 并清理返回结果"""
+    print("\n" + "="*50)
+    print("发送到 LLM 的提示词:")
+    print("-"*50)
+    print(prompt)
+    print("="*50 + "\n")
     
-    if not response:
-        logging.warning("No response from model after retry. Return empty.")
-        return ""
+    result = ""
+    retry_count = 0
     
-    # 增强清洗逻辑
-    cleaned_text = remove_think_tags(response)
+    while retry_count < max_retries:
+        try:
+            result = llm_adapter.invoke(prompt)
+            print("\n" + "="*50)
+            print("LLM 返回的内容:")
+            print("-"*50)
+            print(result)
+            print("="*50 + "\n")
+            
+            # 清理结果中的特殊格式标记
+            result = result.replace("```", "").strip()
+            if result:
+                return result
+            retry_count += 1
+        except Exception as e:
+            print(f"调用失败 ({retry_count + 1}/{max_retries}): {str(e)}")
+            retry_count += 1
+            if retry_count >= max_retries:
+                raise e
     
-    # 移除可能的多余标记
-    cleaned_text = re.sub(r'^```markdown\s*', '', cleaned_text, flags=re.IGNORECASE)
-    cleaned_text = re.sub(r'\s*```$', '', cleaned_text)
-    
-    debug_log(prompt, cleaned_text)
-    return cleaned_text.strip()
+    return result
 
