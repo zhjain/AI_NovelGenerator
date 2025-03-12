@@ -9,6 +9,7 @@ from azure.ai.inference import ChatCompletionsClient
 from azure.core.credentials import AzureKeyCredential
 from azure.ai.inference.models import SystemMessage, UserMessage
 from openai import OpenAI
+import requests
 
 
 def check_base_url(url: str) -> str:
@@ -306,6 +307,38 @@ class VolcanoEngineAIAdapter(BaseLLMAdapter):
             logging.error(f"火山引擎API调用超时或失败: {e}")
             return ""
 
+class SiliconFlowAdapter(BaseLLMAdapter):
+    def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7, timeout: Optional[int] = 600):
+        self.base_url = check_base_url(base_url)
+        self.api_key = api_key
+        self.model_name = model_name
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.timeout = timeout
+
+        self._client = OpenAI(
+            base_url=base_url,
+            api_key=api_key,
+            timeout=timeout  # 添加超时配置
+        )
+    def invoke(self, prompt: str) -> str:
+        try:
+            response = self._client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "你是DeepSeek，是一个 AI 人工智能助手"},
+                    {"role": "user", "content": prompt},
+                ],
+                timeout=self.timeout  # 添加超时参数
+            )
+            if not response:
+                logging.warning("No response from DeepSeekAdapter.")
+                return ""
+            return response.choices[0].message.content
+        except Exception as e:
+            logging.error(f"硅基流动API调用超时或失败: {e}")
+            return ""
+
 def create_llm_adapter(
     interface_format: str,
     base_url: str,
@@ -338,5 +371,7 @@ def create_llm_adapter(
         return OpenAIAdapter(api_key, base_url, model_name, max_tokens, temperature, timeout)
     elif fmt == "火山引擎":
         return VolcanoEngineAIAdapter(api_key, base_url, model_name, max_tokens, temperature, timeout)
+    elif fmt == "硅基流动":
+        return SiliconFlowAdapter(api_key, base_url, model_name, max_tokens, temperature, timeout)
     else:
         raise ValueError(f"Unknown interface_format: {interface_format}")
