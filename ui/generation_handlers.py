@@ -25,12 +25,10 @@ def generate_novel_architecture_ui(self):
         return
 
     def task():
-
         confirm = messagebox.askyesno("确认", "确定要生成小说架构吗？")
         if not confirm:
             self.enable_button_safe(self.btn_generate_architecture)
             return
-
 
         self.disable_button_safe(self.btn_generate_architecture)
         try:
@@ -46,6 +44,8 @@ def generate_novel_architecture_ui(self):
             genre = self.genre_var.get().strip()
             num_chapters = self.safe_get_int(self.num_chapters_var, 10)
             word_number = self.safe_get_int(self.word_number_var, 3000)
+            # 获取内容指导
+            user_guidance = self.user_guide_text.get("0.0", "end").strip()
 
             self.safe_log("开始生成小说架构...")
             Novel_architecture_generate(
@@ -60,7 +60,8 @@ def generate_novel_architecture_ui(self):
                 filepath=filepath,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                timeout=timeout_val
+                timeout=timeout_val,
+                user_guidance=user_guidance  # 添加内容指导参数
             )
             self.safe_log("✅ 小说架构生成完成。请在 'Novel Architecture' 标签页查看或编辑。")
         except Exception:
