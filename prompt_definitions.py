@@ -40,8 +40,9 @@ core_seed_prompt = """\
 
 # =============== 2. 角色动力学设定（角色弧光模型）===================
 character_dynamics_prompt = """\
-基于核心种子：
-{core_seed}
+基于以下元素：
+- 内容指导：{user_guidance}
+- 核心种子：{core_seed}
 
 请设计3-6个具有动态变化潜力的核心角色，每个角色需包含：
 特征：
@@ -68,7 +69,11 @@ character_dynamics_prompt = """\
 
 # =============== 3. 世界构建矩阵（三维度交织法）===================
 world_building_prompt = """\
-为服务核心冲突"{core_seed}"，请构建三维交织的世界观：
+基于以下元素：
+- 内容指导：{user_guidance}
+- 核心冲突："{core_seed}"
+
+为服务上述内容，请构建三维交织的世界观：
 
 1. 物理维度：
 - 空间结构（地理×社会阶层分布图）
@@ -92,10 +97,11 @@ world_building_prompt = """\
 
 # =============== 4. 情节架构（三幕式悬念）===================
 plot_architecture_prompt = """\
-基于以下元素构建三幕式悬念架构：
-核心种子：{core_seed}
-角色体系：{character_dynamics}
-世界观：{world_building}
+基于以下元素：
+- 内容指导：{user_guidance}
+- 核心种子：{core_seed}
+- 角色体系：{character_dynamics}
+- 世界观：{world_building}
 
 要求按以下结构设计：
 第一幕（触发） 
@@ -121,7 +127,9 @@ plot_architecture_prompt = """\
 
 # =============== 5. 章节目录生成（悬念节奏曲线）===================
 chapter_blueprint_prompt = """\
-根据小说架构：\n
+基于以下元素：
+- 内容指导：{user_guidance}
+- 小说架构：
 {novel_architecture}
 
 设计{number_of_chapters}章的节奏分布：
@@ -163,7 +171,9 @@ chapter_blueprint_prompt = """\
 """
 
 chunked_chapter_blueprint_prompt = """\
-根据小说架构：\n
+基于以下元素：
+- 内容指导：{user_guidance}
+- 小说架构：
 {novel_architecture}
 
 需要生成总共{number_of_chapters}章的节奏分布，
