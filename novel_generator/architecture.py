@@ -92,7 +92,8 @@ def Novel_architecture_generate(
             topic=topic,
             genre=genre,
             number_of_chapters=number_of_chapters,
-            word_number=word_number
+            word_number=word_number,
+            user_guidance=user_guidance  # 修复：添加内容指导
         )
         core_seed_result = invoke_with_cleaning(llm_adapter, prompt_core)
         if not core_seed_result.strip():
@@ -141,7 +142,7 @@ def Novel_architecture_generate(
         logging.info("Step3: Generating world_building_prompt ...")
         prompt_world = world_building_prompt.format(
             core_seed=partial_data["core_seed_result"].strip(),
-            user_guidance=user_guidance
+            user_guidance=user_guidance  # 修复：添加用户指导
         )
         world_building_result = invoke_with_cleaning(llm_adapter, prompt_world)
         if not world_building_result.strip():
@@ -159,7 +160,7 @@ def Novel_architecture_generate(
             core_seed=partial_data["core_seed_result"].strip(),
             character_dynamics=partial_data["character_dynamics_result"].strip(),
             world_building=partial_data["world_building_result"].strip(),
-            user_guidance=user_guidance
+            user_guidance=user_guidance  # 修复：添加用户指导
         )
         plot_arch_result = invoke_with_cleaning(llm_adapter, prompt_plot)
         if not plot_arch_result.strip():
