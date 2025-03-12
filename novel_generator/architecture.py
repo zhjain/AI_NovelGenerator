@@ -55,6 +55,7 @@ def Novel_architecture_generate(
     number_of_chapters: int,
     word_number: int,
     filepath: str,
+    user_guidance: str = "",  # 新增参数
     temperature: float = 0.7,
     max_tokens: int = 2048,
     timeout: int = 600
@@ -105,7 +106,10 @@ def Novel_architecture_generate(
     # Step2: 角色动力学
     if "character_dynamics_result" not in partial_data:
         logging.info("Step2: Generating character_dynamics_prompt ...")
-        prompt_character = character_dynamics_prompt.format(core_seed=partial_data["core_seed_result"].strip())
+        prompt_character = character_dynamics_prompt.format(
+            core_seed=partial_data["core_seed_result"].strip(),
+            user_guidance=user_guidance
+        )
         character_dynamics_result = invoke_with_cleaning(llm_adapter, prompt_character)
         if not character_dynamics_result.strip():
             logging.warning("character_dynamics_prompt generation failed.")
@@ -135,7 +139,10 @@ def Novel_architecture_generate(
     # Step3: 世界观
     if "world_building_result" not in partial_data:
         logging.info("Step3: Generating world_building_prompt ...")
-        prompt_world = world_building_prompt.format(core_seed=partial_data["core_seed_result"].strip())
+        prompt_world = world_building_prompt.format(
+            core_seed=partial_data["core_seed_result"].strip(),
+            user_guidance=user_guidance
+        )
         world_building_result = invoke_with_cleaning(llm_adapter, prompt_world)
         if not world_building_result.strip():
             logging.warning("world_building_prompt generation failed.")
@@ -151,7 +158,8 @@ def Novel_architecture_generate(
         prompt_plot = plot_architecture_prompt.format(
             core_seed=partial_data["core_seed_result"].strip(),
             character_dynamics=partial_data["character_dynamics_result"].strip(),
-            world_building=partial_data["world_building_result"].strip()
+            world_building=partial_data["world_building_result"].strip(),
+            user_guidance=user_guidance
         )
         plot_arch_result = invoke_with_cleaning(llm_adapter, prompt_plot)
         if not plot_arch_result.strip():
