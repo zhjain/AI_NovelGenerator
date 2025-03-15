@@ -34,11 +34,22 @@ def build_chapters_tab(self):
     save_btn.grid(row=0, column=3, padx=5, pady=5, sticky="w")
 
     refresh_btn = ctk.CTkButton(top_frame, text="刷新章节列表", command=self.refresh_chapters_list, font=("Microsoft YaHei", 12))
-    refresh_btn.grid(row=0, column=4, padx=5, pady=5, sticky="e")
+    refresh_btn.grid(row=0, column=5, padx=5, pady=5, sticky="e")
+
+    self.chapters_word_count_label = ctk.CTkLabel(top_frame, text="字数：0", font=("Microsoft YaHei", 12))
+    self.chapters_word_count_label.grid(row=0, column=4, padx=(0,10), sticky="e")
 
     self.chapter_view_text = ctk.CTkTextbox(self.chapters_view_tab, wrap="word", font=("Microsoft YaHei", 12))
+    
+    def update_word_count(event=None):
+        text = self.chapter_view_text.get("0.0", "end-1c")
+        text_length = len(text)
+        self.chapters_word_count_label.configure(text=f"字数：{text_length}")
+    
+    self.chapter_view_text.bind("<KeyRelease>", update_word_count)
+    self.chapter_view_text.bind("<ButtonRelease>", update_word_count)
     TextWidgetContextMenu(self.chapter_view_text)
-    self.chapter_view_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+    self.chapter_view_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=5, columnspan=6)
 
     self.chapters_list = []
     refresh_chapters_list(self)

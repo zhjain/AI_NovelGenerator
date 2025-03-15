@@ -33,13 +33,23 @@ def build_left_layout(self):
     self.left_frame.grid_rowconfigure(4, weight=1)
     self.left_frame.columnconfigure(0, weight=1)
 
-    chapter_label = ctk.CTkLabel(self.left_frame, text="本章内容 (可编辑)", font=("Microsoft YaHei", 12))
-    chapter_label.grid(row=0, column=0, padx=5, pady=(5, 0), sticky="w")
+    self.chapter_label = ctk.CTkLabel(self.left_frame, text="本章内容（可编辑）  字数：0", font=("Microsoft YaHei", 12))
+    self.chapter_label.grid(row=0, column=0, padx=5, pady=(5, 0), sticky="w")
 
     # 章节文本编辑框
     self.chapter_result = ctk.CTkTextbox(self.left_frame, wrap="word", font=("Microsoft YaHei", 14))
     TextWidgetContextMenu(self.chapter_result)
     self.chapter_result.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 5))
+
+
+
+    def update_word_count(event=None):
+        text = self.chapter_result.get("0.0", "end")
+        count = len(text) - 1  # 减去最后一个换行符
+        self.chapter_label.configure(text=f"本章内容（可编辑）  字数：{count}")
+
+    self.chapter_result.bind("<KeyRelease>", update_word_count)
+    self.chapter_result.bind("<ButtonRelease>", update_word_count)
 
     # Step 按钮区域
     self.step_buttons_frame = ctk.CTkFrame(self.left_frame)

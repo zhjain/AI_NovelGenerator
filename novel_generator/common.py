@@ -42,18 +42,36 @@ def debug_log(prompt: str, response_content: str):
         f"\n[######################################### Response #########################################]\n{response_content}\n"
     )
 
-def invoke_with_cleaning(llm_adapter, prompt: str) -> str:
-    """
-    调用 LLM，增加重试和清洗逻辑
-    如果多次失败，则返回空字符串以继续流程，而不是中断。
-    """
-    def _invoke(prompt):
-        return llm_adapter.invoke(prompt)
+def invoke_with_cleaning(llm_adapter, prompt: str, max_retries: int = 3) -> str:
+    """调用 LLM 并清理返回结果"""
+    print("\n" + "="*50)
+    print("发送到 LLM 的提示词:")
+    print("-"*50)
+    print(prompt)
+    print("="*50 + "\n")
+    
+    result = ""
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            result = llm_adapter.invoke(prompt)
+            print("\n" + "="*50)
+            print("LLM 返回的内容:")
+            print("-"*50)
+            print(result)
+            print("="*50 + "\n")
+            
+            # 清理结果中的特殊格式标记
+            result = result.replace("```", "").strip()
+            if result:
+                return result
+            retry_count += 1
+        except Exception as e:
+            print(f"调用失败 ({retry_count + 1}/{max_retries}): {str(e)}")
+            retry_count += 1
+            if retry_count >= max_retries:
+                raise e
+    
+    return result
 
-    response = call_with_retry(func=_invoke, max_retries=3, fallback_return="", prompt=prompt)
-    if not response:
-        logging.warning("No response from model after retry. Return empty.")
-        return ""
-    cleaned_text = remove_think_tags(response)
-    debug_log(prompt, cleaned_text)
-    return cleaned_text.strip()

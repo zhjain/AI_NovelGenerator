@@ -3,10 +3,8 @@
 import logging
 import traceback
 from typing import List
-
 import requests
 from langchain_openai import AzureOpenAIEmbeddings, OpenAIEmbeddings
-
 
 def ensure_openai_base_url_has_v1(url: str) -> str:
     """
