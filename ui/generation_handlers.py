@@ -445,20 +445,53 @@ def import_knowledge_handler(self):
                 emb_format = self.embedding_interface_format_var.get().strip()
                 emb_model = self.embedding_model_name_var.get().strip()
 
-                self.safe_log(f"开始导入知识库文件: {selected_file}")
-                import_knowledge_file(
-                    embedding_api_key=emb_api_key,
-                    embedding_url=emb_url,
-                    embedding_interface_format=emb_format,
-                    embedding_model_name=emb_model,
-                    file_path=selected_file,
-                    filepath=self.filepath_var.get().strip()
-                )
-                self.safe_log("✅ 知识库文件导入完成。")
+                # 尝试不同编码读取文件
+                content = None
+                encodings = ['utf-8', 'gbk', 'gb2312', 'ansi']
+                for encoding in encodings:
+                    try:
+                        with open(selected_file, 'r', encoding=encoding) as f:
+                            content = f.read()
+                            break
+                    except UnicodeDecodeError:
+                        continue
+                    except Exception as e:
+                        self.safe_log(f"读取文件时发生错误: {str(e)}")
+                        raise
+
+                if content is None:
+                    raise Exception("无法以任何已知编码格式读取文件")
+
+                # 创建临时UTF-8文件
+                import tempfile
+                import os
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.txt') as temp:
+                    temp.write(content)
+                    temp_path = temp.name
+
+                try:
+                    self.safe_log(f"开始导入知识库文件: {selected_file}")
+                    import_knowledge_file(
+                        embedding_api_key=emb_api_key,
+                        embedding_url=emb_url,
+                        embedding_interface_format=emb_format,
+                        embedding_model_name=emb_model,
+                        file_path=temp_path,
+                        filepath=self.filepath_var.get().strip()
+                    )
+                    self.safe_log("✅ 知识库文件导入完成。")
+                finally:
+                    # 清理临时文件
+                    try:
+                        os.unlink(temp_path)
+                    except:
+                        pass
+
             except Exception:
                 self.handle_exception("导入知识库时出错")
             finally:
                 self.enable_button_safe(self.btn_import_knowledge)
+
         try:
             thread = threading.Thread(target=task, daemon=True)
             thread.start()
