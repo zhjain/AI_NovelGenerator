@@ -77,7 +77,7 @@ def generate_chapter_blueprint_ui(self):
         return
 
     def task():
-        if not messagebox.askyesno("确认", "确定要生成章节草稿吗？"):
+        if not messagebox.askyesno("确认", "确定要生成章节目录吗？"):
             self.enable_button_safe(self.btn_generate_chapter)
             return
         self.disable_button_safe(self.btn_generate_directory)
@@ -90,6 +90,7 @@ def generate_chapter_blueprint_ui(self):
             temperature = self.temperature_var.get()
             max_tokens = self.max_tokens_var.get()
             timeout_val = self.safe_get_int(self.timeout_var, 600)
+            user_guidance = self.user_guide_text.get("0.0", "end").strip()  # 新增获取用户指导
 
             self.safe_log("开始生成章节蓝图...")
             Chapter_blueprint_generate(
@@ -101,7 +102,8 @@ def generate_chapter_blueprint_ui(self):
                 filepath=filepath,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                timeout=timeout_val
+                timeout=timeout_val,
+                user_guidance=user_guidance  # 新增参数
             )
             self.safe_log("✅ 章节蓝图生成完成。请在 'Chapter Blueprint' 标签页查看或编辑。")
         except Exception:
