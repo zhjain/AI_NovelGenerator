@@ -1,3 +1,13 @@
+```markdown
+这是一个基于 [AI-Novel-Generator](https://github.com/LC1332/NovelGener) 项目的Web版本。在源项目的基础上，我们:
+
+1. 添加了Streamlit Web界面，使其可以在浏览器中使用
+2. 增加了Docker支持，便于部署和运行
+3. 保持了源项目的核心功能不变
+
+以下是源项目的README.md内容
+```
+
 # 📖 自动小说生成工具
 
 >- 目前开学了，没什么时间维护该项目，后续更新可能得等长假才能继续
